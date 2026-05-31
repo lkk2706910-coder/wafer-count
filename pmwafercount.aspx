@@ -42,31 +42,41 @@
             margin-right: 4px;
         }
 
-        /* toolbar buttons */
+        /* toolbar: segmented toggle */
         .toolbar {
-            display: flex;
-            gap: 10px;
+            display: inline-flex;
+            gap: 0;
             margin-bottom: 12px;
+            border: 1px solid #1f6fa0;
+            border-radius: 8px;
+            overflow: hidden;
         }
 
+        /* unselected button */
         .btn {
-            height: 30px;
-            padding: 0 14px;
-            border-radius: 6px;
-            border: 1px solid #1f6fa0;
-            background: linear-gradient(#5bb6ea, #2f7fb4);
-            color: #fff;
+            height: 32px;
+            padding: 0 18px;
+            border: none;
+            border-right: 1px solid #1f6fa0;
+            background: #f5f7fa;
+            color: #27414f;
             font-weight: 600;
             cursor: pointer;
         }
 
-        .btn.secondary {
-            border: 1px solid var(--line);
-            background: #f5f7fa;
-            color: #27414f;
+        .toolbar .btn:last-child { border-right: none; }
+
+        .btn:hover { background: #e9f1f8; }
+
+        /* selected (pressed) button */
+        .btn.active {
+            background: linear-gradient(#3b8ec3, #2f7fb4);
+            color: #fff;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);
+            cursor: default;
         }
 
-        .btn:active { filter: brightness(0.95); }
+        .btn.active:hover { background: linear-gradient(#3b8ec3, #2f7fb4); }
 
         .tableWrap {
             border: 1px solid var(--line);
@@ -116,8 +126,8 @@
         </div>
 
         <div class="toolbar">
-            <asp:Button ID="btnByTool" runat="server" Text="SACVD/NISACVD" OnClick="btnByTool_Click" CssClass="btn secondary" />
-            <asp:Button ID="btnByEntity" runat="server" Text="Entity分類" OnClick="btnByEntity_Click" CssClass="btn" />
+            <asp:Button ID="btnByTool" runat="server" Text="SACVD/NISACVD" OnClick="btnByTool_Click" CssClass="btn" />
+            <asp:Button ID="btnByEntity" runat="server" Text="Entity分類" OnClick="btnByEntity_Click" CssClass="btn active" />
         </div>
 
         <div class="tableWrap">

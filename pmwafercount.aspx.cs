@@ -39,8 +39,8 @@ public partial class GPTPoCDB_SampleSite_NotesTable : System.Web.UI.Page
     private void UpdateButtonStyles(string mode)
     {
         bool byTool = string.Equals(mode, "TOOL", StringComparison.OrdinalIgnoreCase);
-        btnByTool.CssClass = byTool ? "btn" : "btn secondary";
-        btnByEntity.CssClass = byTool ? "btn secondary" : "btn";
+        btnByTool.CssClass = byTool ? "btn active" : "btn";
+        btnByEntity.CssClass = byTool ? "btn" : "btn active";
     }
 
     // 共用條件：子機台 SACVD-B##[A-C] / NISACVD-B##[A-C]，METERTYPE = WET_CLEAN
