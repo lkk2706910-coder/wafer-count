@@ -8,69 +8,74 @@ public partial class GPTPoCDB_SampleSite_NotesTable : System.Web.UI.Page
 {
     private const string ConnStr = "Server=UMCESIDB02;Database=GPTPoCDB;User Id=GPTPoCDBUser;Password=DB02.2026;";
 
-    private const string ViewModeKey = "WaferCount_ViewMode";
+    private const string ToolKey = "WaferCount_Tool";
 
     protected void Page_Load(object sender, EventArgs e)
     {
         if (!IsPostBack)
         {
-            if (Session[ViewModeKey] == null)
+            if (Session[ToolKey] == null)
             {
-                Session[ViewModeKey] = "ENTITY";
+                Session[ToolKey] = "SACVD";
             }
             BindTable();
         }
     }
 
-    // 按機台分類：GROUP 只分 SACVD / NISACVD
-    protected void btnByTool_Click(object sender, EventArgs e)
+    protected void btnSACVD_Click(object sender, EventArgs e)
     {
-        Session[ViewModeKey] = "TOOL";
+        Session[ToolKey] = "SACVD";
         BindTable();
     }
 
-    // Entity 分類：GROUP 用 HARP/SA/SMT/SIN/4DC/LTUSG
-    protected void btnByEntity_Click(object sender, EventArgs e)
+    protected void btnNISACVD_Click(object sender, EventArgs e)
     {
-        Session[ViewModeKey] = "ENTITY";
+        Session[ToolKey] = "NISACVD";
         BindTable();
     }
 
-    private void UpdateButtonStyles(string mode)
+    private string CurrentTool()
     {
-        bool byTool = string.Equals(mode, "TOOL", StringComparison.OrdinalIgnoreCase);
-        btnByTool.CssClass = byTool ? "btn active" : "btn";
-        btnByEntity.CssClass = byTool ? "btn" : "btn active";
+        string t = (Session[ToolKey] as string ?? "SACVD").ToUpperInvariant();
+        return t == "NISACVD" ? "NISACVD" : "SACVD";
     }
 
-    // 共用條件：子機台 SACVD-B##[A-C] / NISACVD-B##[A-C]，METERTYPE = WET_CLEAN
-    // EQPID 格式：TOOL-B + 兩碼數字 + 1碼字母(A/B/C)，例如 SACVD-B01A
-
-    // 按機台分類：GROUP 只分 SACVD / NISACVD
-    private static string BuildToolSql()
+    private void UpdateButtonStyles(string tool)
     {
-        return @"
-SELECT
-    CASE WHEN x.EQPID LIKE 'SACVD-%' THEN 'SACVD' ELSE 'NISACVD' END AS [GROUP],
-    x.EQPID,
-    x.METERTYPE,
-    x.DATA_VAL
-FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
-WHERE
-    (
-        x.EQPID LIKE 'SACVD-B[0-9][0-9][ABC]'
-        OR x.EQPID LIKE 'NISACVD-B[0-9][0-9][ABC]'
-    )
-    AND x.METERTYPE = 'WET_CLEAN'
-ORDER BY
-    CASE WHEN x.EQPID LIKE 'SACVD-%' THEN 0 ELSE 1 END,
-    x.EQPID";
+        bool nis = string.Equals(tool, "NISACVD", StringComparison.OrdinalIgnoreCase);
+        btnSACVD.CssClass = nis ? "btn" : "btn active";
+        btnNISACVD.CssClass = nis ? "btn active" : "btn";
     }
 
-    // Entity 分類：GROUP 依母機號(去掉結尾字母)對到 HARP/SA/SMT/SIN/4DC/LTUSG，
-    // 只保留有定義群組的資料，依群組順序 → EQPID 排序
-    private static string BuildEntitySql()
+    // 每個機台對應的 Entity：value 為完整群組名(對應 GROUP 欄)，label 為顯示用短名
+    private static string[][] GetEntities(string tool)
     {
+        if (string.Equals(tool, "NISACVD", StringComparison.OrdinalIgnoreCase))
+        {
+            return new string[][]
+            {
+                new string[] { "NISACVD_SIN", "SIN" },
+                new string[] { "NISACVD_4DC", "4DC" },
+                new string[] { "NISACVD_LTUSG", "LTUSG" },
+            };
+        }
+        return new string[][]
+        {
+            new string[] { "SACVD_HARP", "HARP" },
+            new string[] { "SACVD_SA", "SA" },
+            new string[] { "SACVD_SMT", "SMT" },
+        };
+    }
+
+    // Entity 分類查詢：限定單一機台，GROUP 依母機號對到 entity，依群組順序 → EQPID 排序
+    // EQPID 格式：TOOL-B + 兩碼數字 + 1碼字母(A/B/C)，例如 SACVD-B01A；METERTYPE = WET_CLEAN
+    private static string BuildEntitySql(string tool)
+    {
+        // tool 來自受控集合(SACVD/NISACVD)，直接內嵌 LIKE prefix
+        string toolLike = string.Equals(tool, "NISACVD", StringComparison.OrdinalIgnoreCase)
+            ? "NISACVD-%"
+            : "SACVD-%";
+
         return @"
 SELECT
     g.[GROUP],
@@ -91,6 +96,7 @@ FROM
             OR x.EQPID LIKE 'NISACVD-B[0-9][0-9][ABC]'
         )
         AND x.METERTYPE = 'WET_CLEAN'
+        AND x.EQPID LIKE '" + toolLike + @"'
 ) s
 CROSS APPLY
 (
@@ -122,10 +128,25 @@ ORDER BY g.GRP_ORD, s.EQPID";
     {
         phTable.Controls.Clear();
 
-        string mode = (Session[ViewModeKey] as string ?? "ENTITY").ToUpperInvariant();
-        UpdateButtonStyles(mode);
+        string tool = CurrentTool();
+        UpdateButtonStyles(tool);
 
-        string sql = mode == "TOOL" ? BuildToolSql() : BuildEntitySql();
+        // 該機台的 Entity checkbox（預設全勾），前端 JS 依勾選即時過濾表格列
+        var chk = new StringBuilder();
+        foreach (string[] ent in GetEntities(tool))
+        {
+            string value = ent[0];
+            string label = ent[1];
+            chk.Append("<label class='chk'><input type='checkbox' class='entChk' value='");
+            chk.Append(Server.HtmlEncode(value));
+            chk.Append("' checked onchange='filterEntities()' /> ");
+            chk.Append(Server.HtmlEncode(label));
+            chk.Append("</label>");
+        }
+        phEntities.Controls.Clear();
+        phEntities.Controls.Add(new Literal { Text = chk.ToString() });
+
+        string sql = BuildEntitySql(tool);
 
         using (SqlConnection conn = new SqlConnection(ConnStr))
         using (SqlCommand cmd = new SqlCommand(sql, conn))
@@ -146,12 +167,15 @@ ORDER BY g.GRP_ORD, s.EQPID";
                 }
                 sb.Append("</tr>");
 
-                // 資料列
+                // 資料列：在 <tr> 加 data-entity（= GROUP 欄值），供前端依 checkbox 過濾
                 int rowCount = 0;
                 while (reader.Read())
                 {
                     rowCount++;
-                    sb.Append("<tr>");
+                    string groupVal = reader[0].ToString();
+                    sb.Append("<tr data-entity='");
+                    sb.Append(Server.HtmlEncode(groupVal));
+                    sb.Append("'>");
                     for (int i = 0; i < reader.FieldCount; i++)
                     {
                         sb.Append("<td>");
@@ -162,6 +186,27 @@ ORDER BY g.GRP_ORD, s.EQPID";
                 }
 
                 sb.Append("</table>");
+
+                // 前端：依 Entity checkbox 顯示/隱藏資料列（不 postback）
+                sb.Append(@"<script type='text/javascript'>
+(function(){
+  window.filterEntities = function(){
+    var checks = document.querySelectorAll('.entChk');
+    var on = {};
+    for(var i=0;i<checks.length;i++){ on[checks[i].value] = checks[i].checked; }
+    var rows = document.querySelectorAll('#dataTable tr[data-entity]');
+    for(var j=0;j<rows.length;j++){
+      var e = rows[j].getAttribute('data-entity');
+      rows[j].style.display = on[e] ? '' : 'none';
+    }
+  };
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', window.filterEntities);
+  }else{
+    window.filterEntities();
+  }
+})();
+</script>");
 
                 if (rowCount == 0)
                 {

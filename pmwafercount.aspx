@@ -78,6 +78,36 @@
 
         .btn.active:hover { background: linear-gradient(#3b8ec3, #2f7fb4); }
 
+        /* entity checkbox bar */
+        .entityBar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 14px;
+            padding: 8px 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            margin-bottom: 12px;
+        }
+
+        .entityBar .entityLabel {
+            font-weight: 700;
+            color: #244657;
+        }
+
+        .entityBar .chk {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 13px;
+            color: #27414f;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .entityBar .chk input { cursor: pointer; }
+
         .tableWrap {
             border: 1px solid var(--line);
             border-radius: 8px;
@@ -126,8 +156,13 @@
         </div>
 
         <div class="toolbar">
-            <asp:Button ID="btnByTool" runat="server" Text="SACVD/NISACVD" OnClick="btnByTool_Click" CssClass="btn" />
-            <asp:Button ID="btnByEntity" runat="server" Text="Entity分類" OnClick="btnByEntity_Click" CssClass="btn active" />
+            <asp:Button ID="btnSACVD" runat="server" Text="SACVD" OnClick="btnSACVD_Click" CssClass="btn active" />
+            <asp:Button ID="btnNISACVD" runat="server" Text="NISACVD" OnClick="btnNISACVD_Click" CssClass="btn" />
+        </div>
+
+        <div class="entityBar">
+            <span class="entityLabel">Entity分類：</span>
+            <asp:PlaceHolder ID="phEntities" runat="server"></asp:PlaceHolder>
         </div>
 
         <div class="tableWrap">
