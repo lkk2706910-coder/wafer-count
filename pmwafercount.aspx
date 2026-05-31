@@ -356,6 +356,23 @@
         .pmEditor .primary { background: linear-gradient(#5bb6ea, #2f7fb4); color: #fff; }
         .pmEditor .danger { background: #fff; border-color: #d99; color: #c0392b; }
 
+        /* ----- work assignment view ----- */
+        .waHead { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+        .waHead .monthLabel { font-size: 18px; font-weight: 700; color: #244657; min-width: 150px; text-align: center; }
+
+        table.waTable { border-collapse: collapse; width: 100%; min-width: 560px; }
+        table.waTable th {
+            background: linear-gradient(#6bc0ef, #3b8ec3);
+            color: #fff; text-align: left; padding: 8px 10px; font-size: 13px; position: static;
+        }
+        table.waTable td { border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; vertical-align: top; }
+        table.waTable tr:nth-child(even) td { background: #fafcff; }
+        table.waTable .waContent { white-space: pre-wrap; max-width: 420px; }
+        table.waTable .waPerson {
+            width: 100%; box-sizing: border-box; border: 1px solid var(--line);
+            border-radius: 6px; padding: 5px 8px; font-size: 13px; font-family: inherit;
+        }
+
         .hidden { display: none !important; }
     </style>
 </head>
@@ -365,6 +382,7 @@
             <div class="tabs">
                 <button type="button" class="tab active" data-view="wafer" onclick="showView('wafer')">Wafer Count</button>
                 <button type="button" class="tab" data-view="pm" onclick="showView('pm')">PM 排程</button>
+                <button type="button" class="tab" data-view="work" onclick="showView('work')">工作分配</button>
             </div>
             <div class="updateInfo">
                 <span class="label">Update:</span>
@@ -427,23 +445,39 @@
                 </div>
             </div>
         </div>
+        <!-- ===== Work Assignment view ===== -->
+        <div id="workView" class="view hidden">
+            <h2>工作分配</h2>
+            <div class="waHead">
+                <button type="button" class="navBtn" onclick="pmPrevMonth()">&#9664;</button>
+                <div class="monthLabel" id="waMonthLabel"></div>
+                <button type="button" class="navBtn" onclick="pmNextMonth()">&#9654;</button>
+                <button type="button" class="miniBtn" onclick="pmGoToday()">今天</button>
+            </div>
+            <div class="tableWrap">
+                <div id="waTable"></div>
+            </div>
+        </div>
     </form>
 
     <script type="text/javascript">
     (function () {
         // ---------- tab switching (client-side, remembered) ----------
         window.showView = function (name) {
-            var wafer = document.getElementById('waferView');
-            var pm = document.getElementById('pmView');
-            var isPm = name === 'pm';
-            wafer.classList.toggle('hidden', isPm);
-            pm.classList.toggle('hidden', !isPm);
+            var views = { wafer: 'waferView', pm: 'pmView', work: 'workView' };
+            for (var k in views) {
+                var el = document.getElementById(views[k]);
+                if (el) el.classList.toggle('hidden', k !== name);
+            }
             var tabs = document.querySelectorAll('.tab');
             for (var i = 0; i < tabs.length; i++) {
                 tabs[i].classList.toggle('active', tabs[i].getAttribute('data-view') === name);
             }
             try { sessionStorage.setItem('wc_active_view', name); } catch (e) {}
-            if (isPm && !PM.loaded) { PM.init(); }
+            if (name === 'pm' || name === 'work') {
+                if (!PM.loaded) { PM.init(); }
+                else if (name === 'work') { PM.renderWA(); }
+            }
         };
 
         // ---------- PM schedule calendar ----------
@@ -479,6 +513,7 @@
             }
             PM.closeEditor();
             PM.render();
+            PM.renderWA();
         };
 
         PM.persist = async function () {
@@ -683,6 +718,53 @@
             var now = new Date();
             PM.year = now.getFullYear(); PM.month = now.getMonth();
             PM.loadMonth();
+        };
+
+        // ---------- work assignment table ----------
+        PM.renderWA = function () {
+            var label = document.getElementById('waMonthLabel');
+            if (label) label.textContent = PM.year + ' ' + MON[PM.month];
+            var box = document.getElementById('waTable');
+            if (!box) return;
+
+            var rows = [];
+            for (var ds in PM.data) {
+                if (!PM.data.hasOwnProperty(ds)) continue;
+                var arr = PM.data[ds] || [];
+                for (var i = 0; i < arr.length; i++) { rows.push({ ds: ds, e: arr[i] }); }
+            }
+            rows.sort(function (a, b) {
+                if (a.ds !== b.ds) return a.ds < b.ds ? -1 : 1;
+                var ax = a.e.eqpid || '', bx = b.e.eqpid || '';
+                return ax < bx ? -1 : (ax > bx ? 1 : 0);
+            });
+
+            if (rows.length === 0) {
+                box.innerHTML = '<div class="noData">本月尚無 PM 排程（請到「PM 排程」分頁新增）。</div>';
+                return;
+            }
+
+            var html = '<table class="waTable"><tr><th>日期</th><th>機台</th><th>PM 內容</th><th>人員</th></tr>';
+            for (var r = 0; r < rows.length; r++) {
+                var ds2 = rows[r].ds, e = rows[r].e;
+                var content = (e.action && e.action.trim()) ? esc(e.action) : '<span class="muted">(未填)</span>';
+                html += '<tr>'
+                      + '<td>' + esc(ds2) + '</td>'
+                      + '<td>' + esc(e.eqpid || '') + '</td>'
+                      + '<td class="waContent">' + content + '</td>'
+                      + '<td><input type="text" class="waPerson" value="' + esc(e.person || '') + '"'
+                      + ' placeholder="輸入人員" onchange="pmSetPerson(&#39;' + ds2 + '&#39;,&#39;' + esc(e.id) + '&#39;, this.value)" /></td>'
+                      + '</tr>';
+            }
+            html += '</table>';
+            box.innerHTML = html;
+        };
+
+        window.pmSetPerson = async function (ds, id, value) {
+            var e = findEntry(ds, id);
+            if (!e) return;
+            e.person = value;
+            await PM.persist();
         };
 
         // ---------- restore active tab on load ----------
