@@ -108,6 +108,27 @@
 
         .entityBar .chk input { cursor: pointer; }
 
+        .entityBar .entitySep {
+            width: 1px;
+            align-self: stretch;
+            background: var(--line);
+            margin: 0 2px;
+        }
+
+        .miniBtn {
+            height: 26px;
+            padding: 0 10px;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            background: #f5f7fa;
+            color: #27414f;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .miniBtn:hover { background: #e9f1f8; }
+
         .tableWrap {
             border: 1px solid var(--line);
             border-radius: 8px;
@@ -163,6 +184,9 @@
         <div class="entityBar">
             <span class="entityLabel">Entity分類：</span>
             <asp:PlaceHolder ID="phEntities" runat="server"></asp:PlaceHolder>
+            <span class="entitySep"></span>
+            <button type="button" class="miniBtn" onclick="setAllEntities(true)">全選</button>
+            <button type="button" class="miniBtn" onclick="setAllEntities(false)">全不選</button>
         </div>
 
         <div class="tableWrap">

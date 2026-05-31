@@ -188,9 +188,35 @@ ORDER BY g.GRP_ORD, s.EQPID";
                 sb.Append("</table>");
 
                 // 前端：依 Entity checkbox 顯示/隱藏資料列（不 postback）
+                // 勾選狀態以 sessionStorage 依機台記住，切換機台後會還原
                 sb.Append(@"<script type='text/javascript'>
 (function(){
+  var TOOL = '" + Server.HtmlEncode(tool) + @"';
+  var KEY = 'wc_ent_' + TOOL;
+
+  function saveEntities(){
+    try{
+      var checks = document.querySelectorAll('.entChk');
+      var map = {};
+      for(var i=0;i<checks.length;i++){ map[checks[i].value] = checks[i].checked; }
+      sessionStorage.setItem(KEY, JSON.stringify(map));
+    }catch(e){}
+  }
+
+  function restoreEntities(){
+    try{
+      var saved = JSON.parse(sessionStorage.getItem(KEY) || '{}');
+      var checks = document.querySelectorAll('.entChk');
+      for(var i=0;i<checks.length;i++){
+        if(Object.prototype.hasOwnProperty.call(saved, checks[i].value)){
+          checks[i].checked = !!saved[checks[i].value];
+        }
+      }
+    }catch(e){}
+  }
+
   window.filterEntities = function(){
+    saveEntities();
     var checks = document.querySelectorAll('.entChk');
     var on = {};
     for(var i=0;i<checks.length;i++){ on[checks[i].value] = checks[i].checked; }
@@ -200,10 +226,18 @@ ORDER BY g.GRP_ORD, s.EQPID";
       rows[j].style.display = on[e] ? '' : 'none';
     }
   };
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', window.filterEntities);
-  }else{
+
+  window.setAllEntities = function(state){
+    var checks = document.querySelectorAll('.entChk');
+    for(var i=0;i<checks.length;i++){ checks[i].checked = !!state; }
     window.filterEntities();
+  };
+
+  function init(){ restoreEntities(); window.filterEntities(); }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', init);
+  }else{
+    init();
   }
 })();
 </script>");
