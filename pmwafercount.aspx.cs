@@ -8,19 +8,70 @@ public partial class GPTPoCDB_SampleSite_NotesTable : System.Web.UI.Page
 {
     private const string ConnStr = "Server=UMCESIDB02;Database=GPTPoCDB;User Id=GPTPoCDBUser;Password=DB02.2026;";
 
+    private const string ViewModeKey = "WaferCount_ViewMode";
+
     protected void Page_Load(object sender, EventArgs e)
     {
+        if (!IsPostBack)
+        {
+            if (Session[ViewModeKey] == null)
+            {
+                Session[ViewModeKey] = "ENTITY";
+            }
+            BindTable();
+        }
+    }
+
+    // 按機台分類：GROUP 只分 SACVD / NISACVD
+    protected void btnByTool_Click(object sender, EventArgs e)
+    {
+        Session[ViewModeKey] = "TOOL";
         BindTable();
     }
 
-    private void BindTable()
+    // Entity 分類：GROUP 用 HARP/SA/SMT/SIN/4DC/LTUSG
+    protected void btnByEntity_Click(object sender, EventArgs e)
     {
-        phTable.Controls.Clear();
+        Session[ViewModeKey] = "ENTITY";
+        BindTable();
+    }
 
-        // 只抓子機台 SACVD-B##[A-C] / NISACVD-B##[A-C]，且 METERTYPE = WET_CLEAN
-        // EQPID 格式：TOOL-B + 兩碼數字 + 1碼字母(A/B/C)，例如 SACVD-B01A
-        // GROUP 依母機號(去掉結尾字母)分類，只保留有定義群組的資料，依群組順序 → EQPID 排序
-        string sql = @"
+    private void UpdateButtonStyles(string mode)
+    {
+        bool byTool = string.Equals(mode, "TOOL", StringComparison.OrdinalIgnoreCase);
+        btnByTool.CssClass = byTool ? "btn" : "btn secondary";
+        btnByEntity.CssClass = byTool ? "btn secondary" : "btn";
+    }
+
+    // 共用條件：子機台 SACVD-B##[A-C] / NISACVD-B##[A-C]，METERTYPE = WET_CLEAN
+    // EQPID 格式：TOOL-B + 兩碼數字 + 1碼字母(A/B/C)，例如 SACVD-B01A
+
+    // 按機台分類：GROUP 只分 SACVD / NISACVD
+    private static string BuildToolSql()
+    {
+        return @"
+SELECT
+    CASE WHEN x.EQPID LIKE 'SACVD-%' THEN 'SACVD' ELSE 'NISACVD' END AS [GROUP],
+    x.EQPID,
+    x.METERTYPE,
+    x.DATA_VAL
+FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
+WHERE
+    (
+        x.EQPID LIKE 'SACVD-B[0-9][0-9][ABC]'
+        OR x.EQPID LIKE 'NISACVD-B[0-9][0-9][ABC]'
+    )
+    AND x.METERTYPE = 'WET_CLEAN'
+ORDER BY
+    CASE WHEN x.EQPID LIKE 'SACVD-%' THEN 0 ELSE 1 END,
+    x.EQPID";
+    }
+
+    // Entity 分類：GROUP 依母機號(去掉結尾字母)對到 HARP/SA/SMT/SIN/4DC/LTUSG，
+    // 只保留有定義群組的資料，依群組順序 → EQPID 排序
+    private static string BuildEntitySql()
+    {
+        return @"
 SELECT
     g.[GROUP],
     s.EQPID,
@@ -65,6 +116,16 @@ CROSS APPLY
 ) g
 WHERE g.[GROUP] IS NOT NULL
 ORDER BY g.GRP_ORD, s.EQPID";
+    }
+
+    private void BindTable()
+    {
+        phTable.Controls.Clear();
+
+        string mode = (Session[ViewModeKey] as string ?? "ENTITY").ToUpperInvariant();
+        UpdateButtonStyles(mode);
+
+        string sql = mode == "TOOL" ? BuildToolSql() : BuildEntitySql();
 
         using (SqlConnection conn = new SqlConnection(ConnStr))
         using (SqlCommand cmd = new SqlCommand(sql, conn))

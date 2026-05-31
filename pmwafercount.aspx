@@ -42,6 +42,32 @@
             margin-right: 4px;
         }
 
+        /* toolbar buttons */
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .btn {
+            height: 30px;
+            padding: 0 14px;
+            border-radius: 6px;
+            border: 1px solid #1f6fa0;
+            background: linear-gradient(#5bb6ea, #2f7fb4);
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .btn.secondary {
+            border: 1px solid var(--line);
+            background: #f5f7fa;
+            color: #27414f;
+        }
+
+        .btn:active { filter: brightness(0.95); }
+
         .tableWrap {
             border: 1px solid var(--line);
             border-radius: 8px;
@@ -87,6 +113,11 @@
                 <span class="label">Update:</span>
                 <asp:Label ID="lblUpdate" runat="server" />
             </div>
+        </div>
+
+        <div class="toolbar">
+            <asp:Button ID="btnByTool" runat="server" Text="SACVD/NISACVD" OnClick="btnByTool_Click" CssClass="btn secondary" />
+            <asp:Button ID="btnByEntity" runat="server" Text="Entity分類" OnClick="btnByEntity_Click" CssClass="btn" />
         </div>
 
         <div class="tableWrap">
