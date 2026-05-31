@@ -267,24 +267,57 @@
         td.dayCell:hover .addPm { visibility: visible; }
 
         .pmItem {
-            display: block;
+            display: flex;
+            align-items: center;
+            gap: 4px;
             font-size: 11px;
             background: #e9f6ff;
             border: 1px solid #b9def5;
             border-radius: 4px;
-            padding: 2px 5px;
+            padding: 2px 4px;
             margin-bottom: 3px;
             color: #1f6fa0;
-            cursor: pointer;
+            cursor: grab;
+        }
+
+        .pmItem:active { cursor: grabbing; }
+        .pmItem:hover { background: #d4eefc; }
+        .pmItem.selected { background: #2f7fb4; color: #fff; border-color: #1f6fa0; }
+        .pmItem.dragging { opacity: 0.4; }
+        .pmItem .dot { color: #36a35b; font-weight: 700; flex: 0 0 auto; }
+        .pmItem .dot.empty { color: #d99a00; }
+
+        .pmItem .pmLabel {
+            flex: 1 1 auto;
+            min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
 
-        .pmItem:hover { background: #d4eefc; }
-        .pmItem.selected { background: #2f7fb4; color: #fff; border-color: #1f6fa0; }
-        .pmItem .dot { color: #36a35b; font-weight: 700; }
-        .pmItem .dot.empty { color: #d99a00; }
+        .pmItem .pmActions {
+            flex: 0 0 auto;
+            display: none;
+            gap: 1px;
+        }
+
+        .pmItem:hover .pmActions { display: inline-flex; }
+
+        .pmItem .iconBtn {
+            border: none;
+            background: transparent;
+            color: inherit;
+            font-size: 11px;
+            line-height: 1;
+            padding: 1px 3px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .pmItem .iconBtn:hover { background: rgba(0, 0, 0, 0.12); }
+        .pmItem.selected .iconBtn:hover { background: rgba(255, 255, 255, 0.25); }
+
+        td.dayCell.dragOver { background: #fff6da; outline: 2px dashed var(--blue-2); outline-offset: -2px; }
 
         /* editor panel (right) */
         .pmEditor {
@@ -486,7 +519,8 @@
                     var ds = dStr(PM.year, PM.month, day);
                     var cls = 'dayCell' + (ds === todayStr ? ' today' : '');
                     var numCls = 'dayNum' + (c === 0 ? ' sun' : (c === 6 ? ' sat' : ''));
-                    html += '<td class="' + cls + '">';
+                    html += '<td class="' + cls + '" data-date="' + ds + '"'
+                          + ' ondragover="pmDragOver(event)" ondragleave="pmDragLeave(event)" ondrop="pmDrop(event)">';
                     html += '<div class="dayHead"><span class="' + numCls + '">' + day + '</span>'
                           + '<button type="button" class="addPm" title="新增 PM" onclick="pmAdd(\'' + ds + '\')">+</button></div>';
                     html += '<div class="dayEvents">';
@@ -495,8 +529,15 @@
                         var it = items[i];
                         var hasAction = (it.action && it.action.trim()) || (it.retest && it.retest.trim());
                         var sel = (PM.editDate === ds && PM.editId === it.id) ? ' selected' : '';
-                        html += '<span class="pmItem' + sel + '" title="' + esc(it.eqpid) + '" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">'
-                              + '<span class="dot' + (hasAction ? '' : ' empty') + '">&#9679;</span> ' + esc(it.eqpid || '(未命名)') + '</span>';
+                        html += '<span class="pmItem' + sel + '" draggable="true"'
+                              + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + esc(it.eqpid) + '"'
+                              + ' ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)">'
+                              + '<span class="dot' + (hasAction ? '' : ' empty') + '">&#9679;</span>'
+                              + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '(未命名)') + '</span>'
+                              + '<span class="pmActions">'
+                              + '<button type="button" class="iconBtn" title="編輯" onclick="event.stopPropagation(); pmEdit(\'' + ds + '\',\'' + it.id + '\')">&#9998;</button>'
+                              + '<button type="button" class="iconBtn" title="刪除" onclick="event.stopPropagation(); pmQuickDelete(\'' + ds + '\',\'' + it.id + '\')">&#10005;</button>'
+                              + '</span></span>';
                     }
                     html += '</div></td>';
                     day++;
@@ -541,6 +582,60 @@
 
         window.pmAdd = function (ds) { PM.openEditor(ds, null); };
         window.pmEdit = function (ds, id) { PM.openEditor(ds, findEntry(ds, id)); };
+
+        // ---------- drag & drop (move PM to another day) ----------
+        window.pmDragStart = function (ev) {
+            var el = ev.currentTarget;
+            el.classList.add('dragging');
+            var payload = { d: el.getAttribute('data-date'), id: el.getAttribute('data-id') };
+            ev.dataTransfer.setData('text/plain', JSON.stringify(payload));
+            ev.dataTransfer.effectAllowed = 'move';
+        };
+        window.pmDragEnd = function (ev) { ev.currentTarget.classList.remove('dragging'); };
+        window.pmDragOver = function (ev) {
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = 'move';
+            ev.currentTarget.classList.add('dragOver');
+        };
+        window.pmDragLeave = function (ev) { ev.currentTarget.classList.remove('dragOver'); };
+        window.pmDrop = async function (ev) {
+            ev.preventDefault();
+            var cell = ev.currentTarget;
+            cell.classList.remove('dragOver');
+            var toDate = cell.getAttribute('data-date');
+            if (!toDate) return;
+
+            var payload;
+            try { payload = JSON.parse(ev.dataTransfer.getData('text/plain')); } catch (e) { return; }
+            if (!payload || payload.d === toDate) return;
+
+            var entry = findEntry(payload.d, payload.id);
+            if (!entry) return;
+
+            // remove from source day, append to target day
+            PM.data[payload.d] = (PM.data[payload.d] || []).filter(function (x) { return x.id !== payload.id; });
+            if (PM.data[payload.d].length === 0) delete PM.data[payload.d];
+            if (!PM.data[toDate]) PM.data[toDate] = [];
+            PM.data[toDate].push(entry);
+
+            // follow the moved item if it was being edited
+            if (PM.editId === payload.id) { PM.editDate = toDate; }
+
+            if (await PM.persist()) {
+                PM.render();
+                if (PM.editId === payload.id) {
+                    document.getElementById('pmEdDate').textContent = toDate;
+                }
+            }
+        };
+
+        window.pmQuickDelete = async function (ds, id) {
+            if (!confirm('確定刪除這筆 PM？')) return;
+            PM.data[ds] = (PM.data[ds] || []).filter(function (x) { return x.id !== id; });
+            if (PM.data[ds].length === 0) delete PM.data[ds];
+            if (PM.editDate === ds && PM.editId === id) PM.closeEditor();
+            if (await PM.persist()) PM.render();
+        };
 
         window.pmSaveEntry = async function () {
             var ds = PM.editDate;
