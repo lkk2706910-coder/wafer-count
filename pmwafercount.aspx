@@ -629,12 +629,25 @@
                 var ld = loadOf(ds); ld.n++; if (ent) ld.ents[ent] = true;
             }
 
+            // 收集已存在的「手動 PM」鍵(eqpid|metertype)：
+            // 已被編輯成手動的自動項目，不要再從 GetAutoPm 重複產生(否則重整會多一筆)
+            var manualKeys = {};
+            for (var dk in PM.data) {
+                if (!PM.data.hasOwnProperty(dk)) continue;
+                var arr = PM.data[dk];
+                for (var mi = 0; mi < arr.length; mi++) {
+                    var me = arr[mi];
+                    if (!me.auto && me.metertype) manualKeys[autoKey(me.eqpid, me.metertype)] = true;
+                }
+            }
+
             // 拆成「固定(已覆寫)」與「待分配」兩類
             var fixedItems = [], freeItems = [];
             for (var i = 0; i < list.length; i++) {
                 var it = list[i];
                 it._mt = it.metertype || '';
                 it._key = autoKey(it.eqpid, it._mt);   // eqpid|metertype，A-PM/B-PM 各自獨立
+                if (manualKeys[it._key]) continue;     // 已轉成手動 → 略過，避免重複
                 it._ent = it.group || '';
                 if (PM.autoOverrides[it._key]) {
                     it._ds = PM.autoOverrides[it._key]; // 使用者拖過的實際日期
