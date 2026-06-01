@@ -72,17 +72,22 @@ public partial class GPTPoCDB_SampleSite_NotesTable : System.Web.UI.Page
         };
     }
 
-    // Entity 分類查詢：限定單一機台，GROUP 依母機號對到 entity，依群組順序 → EQPID 排序
+    // Entity 分類查詢：限定單一機台，GROUP 依母機號對到 entity，依群組順序 → EQPID → METERTYPE 排序
     // 收兩種 EQPID：
     //   子機台(chamber)：TOOL-B + 兩碼數字 + 1碼字母(A/B/C)，例如 SACVD-B01A
     //   母機台(MF)      ：TOOL-B + 兩碼數字（無字母），例如 SACVD-B01，顯示時 EQPID 後加 -MF
-    // 兩者 MOM 都對到同一母機號，沿用同一份 entity 分類；METERTYPE = WET_CLEAN
+    // 每台允許的 METERTYPE 依機台而不同（NISACVD chamber 可能同時有 A-PM/B-PM/WET_CLEAN，
+    // 故一台可能出現多列）；兩者 MOM 都對到同一母機號，沿用同一份 entity 分類。
     private static string BuildEntitySql(string tool)
     {
+        bool isNis = string.Equals(tool, "NISACVD", StringComparison.OrdinalIgnoreCase);
+
         // tool 來自受控集合(SACVD/NISACVD)，直接內嵌 LIKE prefix
-        string toolLike = string.Equals(tool, "NISACVD", StringComparison.OrdinalIgnoreCase)
-            ? "NISACVD-%"
-            : "SACVD-%";
+        string toolLike = isNis ? "NISACVD-%" : "SACVD-%";
+
+        // 各範圍允許的 METERTYPE 清單（IN list）
+        string chamberMeters = isNis ? "'A-PM','B-PM','WET_CLEAN'" : "'WET_CLEAN'";
+        string mfMeters = isNis ? "'BUFFER-PM','BUFFER_WET_CLEAN'" : "'BUFFER_WET_CLEAN'";
 
         return @"
 SELECT
@@ -105,16 +110,16 @@ FROM
     FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
     WHERE
         (
-            -- 子機台(chamber)：WET_CLEAN
+            -- 子機台(chamber)
             (
                 (x.EQPID LIKE 'SACVD-B[0-9][0-9][ABC]' OR x.EQPID LIKE 'NISACVD-B[0-9][0-9][ABC]')
-                AND x.METERTYPE = 'WET_CLEAN'
+                AND x.METERTYPE IN (" + chamberMeters + @")
             )
             OR
-            -- 母機台(MF)：BUFFER_WET_CLEAN
+            -- 母機台(MF)
             (
                 (x.EQPID LIKE 'SACVD-B[0-9][0-9]' OR x.EQPID LIKE 'NISACVD-B[0-9][0-9]')
-                AND x.METERTYPE = 'BUFFER_WET_CLEAN'
+                AND x.METERTYPE IN (" + mfMeters + @")
             )
         )
         AND x.EQPID LIKE '" + toolLike + @"'
@@ -142,7 +147,7 @@ CROSS APPLY
         END AS GRP_ORD
 ) g
 WHERE g.[GROUP] IS NOT NULL
-ORDER BY g.GRP_ORD, s.EQPID";
+ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     }
 
     private void BindTable()
