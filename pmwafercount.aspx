@@ -851,8 +851,8 @@
                 // 自動排程：把實際日期記成覆寫（存到 AUTOPM override，不寫進手動排程檔）
                 PM.autoOverrides[entry.eqpid] = toDate;
                 entry.overridden = true;   // 改成「已移動」(淺藍)樣式
-                await PM.saveAutoOverrides();
-                PM.render();
+                PM.render();               // 先立刻重畫變藍，不等存檔回應
+                PM.saveAutoOverrides();     // 背景存檔
             } else if (await PM.persist()) {
                 PM.render();
                 if (PM.editId === payload.id) {
