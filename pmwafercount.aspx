@@ -484,6 +484,7 @@
                     <div id="pmEditorEmpty" class="muted">點選日期格右上的 <b>+</b> 新增機台 PM，或點月曆中的機台名稱編輯。</div>
                     <div id="pmEditorForm" class="hidden">
                         <div><b>日期：</b><span id="pmEdDate"></span></div>
+                        <div id="pmEdMeterRow" class="hidden"><b>量測項：</b><span id="pmEdMeter"></span></div>
                         <label>機台 EQPID</label>
                         <input type="text" id="pmEdEqp" placeholder="例如 SACVD-B01A" />
                         <label>PM Action</label>
@@ -841,11 +842,12 @@
                                   + '</span>';
                         } else {
                             var hasAction = (it.action && it.action.trim()) || (it.retest && it.retest.trim());
+                            var mMtTxt = it.metertype ? (' · ' + it.metertype) : '';
                             html += '<span class="pmItem' + sel + '" draggable="true"'
-                                  + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + esc(it.eqpid) + '"'
+                                  + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + esc(it.eqpid) + esc(mMtTxt) + '"'
                                   + ' ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)">'
                                   + '<span class="dot' + (hasAction ? '' : ' empty') + '">&#9679;</span>'
-                                  + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '(未命名)') + '</span>'
+                                  + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '(未命名)') + esc(mMtTxt) + '</span>'
                                   + '<span class="pmActions">'
                                   + '<button type="button" class="iconBtn" title="編輯" onclick="event.stopPropagation(); pmEdit(\'' + ds + '\',\'' + it.id + '\')">&#9998;</button>'
                                   + '<button type="button" class="iconBtn" title="刪除" onclick="event.stopPropagation(); pmQuickDelete(\'' + ds + '\',\'' + it.id + '\')">&#10005;</button>'
@@ -878,6 +880,9 @@
             document.getElementById('pmEditorEmpty').classList.add('hidden');
             document.getElementById('pmEditorForm').classList.remove('hidden');
             document.getElementById('pmEdDate').textContent = ds;
+            var mt = entry ? (entry.metertype || '') : '';
+            document.getElementById('pmEdMeter').textContent = mt;
+            document.getElementById('pmEdMeterRow').classList.toggle('hidden', !mt);
             document.getElementById('pmEdEqp').value = entry ? (entry.eqpid || '') : '';
             document.getElementById('pmEdAction').value = entry ? (entry.action || '') : '';
             document.getElementById('pmEdRetest').value = entry ? (entry.retest || '') : '';
