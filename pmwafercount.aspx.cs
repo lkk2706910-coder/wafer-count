@@ -109,7 +109,8 @@ SELECT
     g.[GROUP],
     s.DISP_EQPID AS EQPID,
     s.DISP_METERTYPE AS METERTYPE,
-    s.DATA_VAL
+    s.DATA_VAL,
+    s.SPEC_VAL
 FROM
 (
     SELECT
@@ -127,8 +128,17 @@ FROM
         -- 顯示用 METERTYPE：NISACVD 的 WET_CLEAN 顯示為 B-PM；其餘照原值
         " + (isNis
             ? "CASE WHEN x.METERTYPE = 'WET_CLEAN' THEN 'B-PM' ELSE x.METERTYPE END"
-            : "x.METERTYPE") + @" AS DISP_METERTYPE
+            : "x.METERTYPE") + @" AS DISP_METERTYPE,
+        -- SPEC：從 _MeterTarget_DB09 以 EQCH+METERTYPE 對應，取 ALARM 當 spec 值
+        sp.SPEC_VAL
     FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
+    OUTER APPLY
+    (
+        SELECT TOP 1 t.ALARM AS SPEC_VAL
+        FROM GPTPoCDB.dbo._MeterTarget_DB09 t
+        WHERE t.EQCH = x.EQPID AND t.METERTYPE = x.METERTYPE
+        ORDER BY t.LASTREADINGTIME DESC
+    ) sp
     WHERE
         (
             -- 子機台(chamber)
@@ -289,8 +299,12 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                     string eqpid = reader["EQPID"].ToString();
                     string meter = reader["METERTYPE"].ToString();
                     string dataVal = reader["DATA_VAL"].ToString();
-                    string specDef = SpecDefault(groupVal, eqpid, meter);
-                    // spec key：群組 + 類別 + chamber，讓相同 spec 的列共用同一值
+                    // SPEC 預設值：優先用 DB(_MeterTarget_DB09.ALARM)，讀不到才退回硬編預設
+                    string specFromDb = reader["SPEC_VAL"] == DBNull.Value ? null : reader["SPEC_VAL"].ToString();
+                    string specDef = !string.IsNullOrWhiteSpace(specFromDb)
+                        ? specFromDb.Trim()
+                        : SpecDefault(groupVal, eqpid, meter);
+                    // spec key：每列獨立（EQPID + METERTYPE）
                     string specKey = SpecKey(groupVal, eqpid, meter);
 
                     sb.Append("<tr data-entity='");
