@@ -230,34 +230,10 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
         return "";
     }
 
-    // spec 的識別鍵：相同鍵的列共用同一個 spec 值（編輯一處同步全部）
-    // 形式：GROUP|類別[|CH]，例如 NISACVD_SIN|A-PM、NISACVD_4DC|A-PM|C、SACVD_HARP|CH、*|BUFFER
+    // spec 的識別鍵：每一列獨立（EQPID + METERTYPE），編輯互不影響
     private static string SpecKey(string group, string dispEqpid, string dispMeter)
     {
-        string g = (group ?? "").ToUpperInvariant();
-        string m = (dispMeter ?? "").ToUpperInvariant();
-
-        if (m.StartsWith("BUFFER")) return g + "|BUFFER";
-
-        bool isNis4dc = g == "NISACVD_4DC";
-        bool isNis = g.StartsWith("NISACVD_");
-
-        char ch = '\0';
-        if (!string.IsNullOrEmpty(dispEqpid) && !dispEqpid.ToUpperInvariant().EndsWith("-MF"))
-        {
-            ch = char.ToUpperInvariant(dispEqpid[dispEqpid.Length - 1]);
-        }
-
-        if (isNis)
-        {
-            // A-PM / B-PM；4DC 再分 CHC 與 CHA/B
-            string cat = (m == "A-PM") ? "A-PM" : (m == "B-PM" ? "B-PM" : m);
-            if (isNis4dc) return g + "|" + cat + "|" + (ch == 'C' ? "C" : "AB");
-            return g + "|" + cat;
-        }
-
-        // SACVD chamber：單一 spec
-        return g + "|CH";
+        return (dispEqpid ?? "") + "|" + (dispMeter ?? "");
     }
 
     private void BindTable()
@@ -396,16 +372,6 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     return isNaN(v) ? NaN : v;
   }
 
-  // 同一 data-key 的 spec 值同步到所有同 key 的輸入框
-  function syncSpecByKey(key, value){
-    var inputs = document.querySelectorAll('.specInput');
-    for(var i=0;i<inputs.length;i++){
-      if(inputs[i].getAttribute('data-key') === key && inputs[i].value !== value){
-        inputs[i].value = value;
-      }
-    }
-  }
-
   function recalcRow(input){
     var row = input.closest('tr');
     if(!row) return;
@@ -428,8 +394,7 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
   }
 
   window.onSpecInput = function(input){
-    syncSpecByKey(input.getAttribute('data-key'), input.value);
-    recalcAll();
+    recalcRow(input);
     // debounce 存檔
     if(saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(saveSpecs, 600);
@@ -540,7 +505,20 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     window.filterEntities();
   };
 
-  function init(){ restoreEntities(); window.filterEntities(); loadSpecs(); }
+  // 預設：DIFF 欄由小到大排序（等 spec 載入、DIFF 算好後才排）
+  function defaultSortDiffAsc(){
+    var th = document.querySelector('#dataTable th[data-col=\'5\']');
+    if(!th) return;
+    sortState.col = -1; sortState.dir = 1; // 確保 sortBy 視為升冪
+    window.sortBy(th);
+  }
+
+  async function init(){
+    restoreEntities();
+    window.filterEntities();
+    await loadSpecs();
+    defaultSortDiffAsc();
+  }
   if(document.readyState === 'loading'){
     document.addEventListener('DOMContentLoaded', init);
   }else{
