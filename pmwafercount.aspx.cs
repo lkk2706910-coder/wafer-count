@@ -410,9 +410,10 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     var v = parseNum(valCell ? valCell.textContent : '');
     var sp = parseNum(input.value);
     if(isNaN(v) || isNaN(sp)){ diffCell.textContent = ''; diffCell.className = 'diffCell'; return; }
-    var diff = v - sp;
+    var diff = sp - v;
     diffCell.textContent = (diff > 0 ? '+' : '') + diff;
-    diffCell.className = 'diffCell' + (diff >= 0 ? ' over' : '');
+    // 現值已達/超過 spec（差值 <= 0）標紅
+    diffCell.className = 'diffCell' + (diff <= 0 ? ' over' : '');
   }
 
   function recalcAll(){
