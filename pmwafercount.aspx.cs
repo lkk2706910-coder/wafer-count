@@ -144,12 +144,13 @@ FROM
     ) sp
     OUTER APPLY
     (
-        -- 由當日往前一個月：[今天-1月, 今天]
+        -- 由當日往前一個月：[今天-1月, 今天]；排除 CNTQ = 0 的天數
         SELECT AVG(CAST(u.CNTQ AS decimal(18,4))) AS AVG_MOVE
         FROM GPTPoCDB.dbo._MeterUEDA_DB09 u
         WHERE u.EQCH = x.EQPID AND u.METERTYPE = x.METERTYPE
           AND u.TXNDATE >= DATEADD(MONTH, -1, CAST(GETDATE() AS date))
           AND u.TXNDATE <= CAST(GETDATE() AS date)
+          AND u.CNTQ <> 0
     ) mv
     WHERE
         (
