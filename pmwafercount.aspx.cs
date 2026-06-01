@@ -108,7 +108,7 @@ public partial class GPTPoCDB_SampleSite_NotesTable : System.Web.UI.Page
 SELECT
     g.[GROUP],
     s.DISP_EQPID AS EQPID,
-    s.METERTYPE,
+    s.DISP_METERTYPE AS METERTYPE,
     s.DATA_VAL
 FROM
 (
@@ -123,7 +123,11 @@ FROM
              ELSE LEFT(x.EQPID, LEN(x.EQPID) - 1) END AS MOM,
         -- 母機台顯示加 -MF；子機台維持原樣
         CASE WHEN x.EQPID LIKE '%[0-9]' THEN x.EQPID + '-MF'
-             ELSE x.EQPID END AS DISP_EQPID
+             ELSE x.EQPID END AS DISP_EQPID,
+        -- 顯示用 METERTYPE：NISACVD 的 WET_CLEAN 顯示為 B-PM；其餘照原值
+        " + (isNis
+            ? "CASE WHEN x.METERTYPE = 'WET_CLEAN' THEN 'B-PM' ELSE x.METERTYPE END"
+            : "x.METERTYPE") + @" AS DISP_METERTYPE
     FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
     WHERE
         (
