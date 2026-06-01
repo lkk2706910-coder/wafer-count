@@ -132,7 +132,7 @@ FROM
             : "x.METERTYPE") + @" AS DISP_METERTYPE,
         -- SPEC：從 _MeterTarget_DB09 以 EQCH+METERTYPE 對應，取 ALARM 當 spec 值
         sp.SPEC_VAL,
-        -- AVG MOVE：_MeterUEDA_DB09 由當日往前一個月每天 CNTQ 的平均
+        -- AVG MOVE：_MeterUEDA_DB09 由當日往前一個月每天 move(MAXQ-MINQ) 的平均
         mv.AVG_MOVE
     FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
     OUTER APPLY
@@ -144,13 +144,14 @@ FROM
     ) sp
     OUTER APPLY
     (
-        -- 由當日往前一個月：[今天-1月, 今天]；排除 CNTQ = 0 的天數
-        SELECT AVG(CAST(u.CNTQ AS decimal(18,4))) AS AVG_MOVE
+        -- 由當日往前一個月：[今天-1月, 今天]
+        -- move 數 = 當天 MAXQ - MINQ；排除 move = 0 的天數
+        SELECT AVG(CAST(u.MAXQ - u.MINQ AS decimal(18,4))) AS AVG_MOVE
         FROM GPTPoCDB.dbo._MeterUEDA_DB09 u
         WHERE u.EQCH = x.EQPID AND u.METERTYPE = x.METERTYPE
           AND u.TXNDATE >= DATEADD(MONTH, -1, CAST(GETDATE() AS date))
           AND u.TXNDATE <= CAST(GETDATE() AS date)
-          AND u.CNTQ <> 0
+          AND (u.MAXQ - u.MINQ) <> 0
     ) mv
     WHERE
         (
@@ -252,7 +253,7 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                     string dataVal = reader["DATA_VAL"].ToString();
                     // SPEC 完全來自 DB(_MeterTarget_DB09.ALARM)，讀不到則留空
                     string specDef = reader["SPEC_VAL"] == DBNull.Value ? "" : reader["SPEC_VAL"].ToString().Trim();
-                    // Avg. move：前一個月每天 CNTQ 的平均（_MeterUEDA_DB09），四捨五入到整數
+                    // Avg. move：前一個月每天 (MAXQ-MINQ) 的平均（_MeterUEDA_DB09），四捨五入到整數
                     string avgMove = "";
                     if (reader["AVG_MOVE"] != DBNull.Value)
                     {
