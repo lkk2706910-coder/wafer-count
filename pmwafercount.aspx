@@ -739,6 +739,27 @@
                 placeAt(picked, fit._ent);
             }
 
+            // ---- 同機台 A-PM / B-PM 若排定日相差 7 天內 → 合併到較早那天 ----
+            // (僅針對未被使用者拖過的自動項目；以最早日期為準)
+            function dsDiffDays(a, b) {
+                var pa = a.split('-'), pb = b.split('-');
+                return Math.round((new Date(+pa[0], +pa[1] - 1, +pa[2]) - new Date(+pb[0], +pb[1] - 1, +pb[2])) / 86400000);
+            }
+            var byEqp = {};
+            for (var qi = 0; qi < freeItems.length; qi++) {
+                var fq = freeItems[qi];
+                if (fq._mt !== 'A-PM' && fq._mt !== 'B-PM') continue;
+                (byEqp[fq.eqpid] || (byEqp[fq.eqpid] = {}))[fq._mt] = fq;
+            }
+            for (var eq in byEqp) {
+                if (!byEqp.hasOwnProperty(eq)) continue;
+                var pa = byEqp[eq]['A-PM'], pb = byEqp[eq]['B-PM'];
+                if (pa && pb && Math.abs(dsDiffDays(pa._ds, pb._ds)) <= 7) {
+                    var early = pa._ds < pb._ds ? pa._ds : pb._ds;
+                    pa._ds = early; pb._ds = early;
+                }
+            }
+
             // ---- 組 autoList 並放進當月月曆 ----
             PM.autoList = [];
             var allItems = fixedItems.concat(freeItems);
