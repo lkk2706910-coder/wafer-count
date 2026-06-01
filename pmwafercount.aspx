@@ -766,9 +766,9 @@
             await PM.persist();
         };
 
-        // ---------- always land on PM schedule ----------
+        // ---------- land on PM schedule (first load) or stay on Wafer Count (postback) ----------
         function boot() {
-            showView('pm');
+            showView('<%= InitialView %>');
         }
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', boot);

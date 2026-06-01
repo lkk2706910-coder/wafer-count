@@ -10,8 +10,13 @@ public partial class GPTPoCDB_SampleSite_NotesTable : System.Web.UI.Page
 
     private const string ToolKey = "WaferCount_Tool";
 
+    // 首次載入回 PM 排程；postback（按 SACVD/NISACVD）後停在 Wafer Count
+    protected string InitialView;
+
     protected void Page_Load(object sender, EventArgs e)
     {
+        InitialView = IsPostBack ? "wafer" : "pm";
+
         if (!IsPostBack)
         {
             if (Session[ToolKey] == null)
@@ -100,12 +105,18 @@ FROM
     FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
     WHERE
         (
-            x.EQPID LIKE 'SACVD-B[0-9][0-9][ABC]'
-            OR x.EQPID LIKE 'NISACVD-B[0-9][0-9][ABC]'
-            OR x.EQPID LIKE 'SACVD-B[0-9][0-9]'
-            OR x.EQPID LIKE 'NISACVD-B[0-9][0-9]'
+            -- 子機台(chamber)：WET_CLEAN
+            (
+                (x.EQPID LIKE 'SACVD-B[0-9][0-9][ABC]' OR x.EQPID LIKE 'NISACVD-B[0-9][0-9][ABC]')
+                AND x.METERTYPE = 'WET_CLEAN'
+            )
+            OR
+            -- 母機台(MF)：BUFFER_WET_CLEAN
+            (
+                (x.EQPID LIKE 'SACVD-B[0-9][0-9]' OR x.EQPID LIKE 'NISACVD-B[0-9][0-9]')
+                AND x.METERTYPE = 'BUFFER_WET_CLEAN'
+            )
         )
-        AND x.METERTYPE = 'WET_CLEAN'
         AND x.EQPID LIKE '" + toolLike + @"'
 ) s
 CROSS APPLY
