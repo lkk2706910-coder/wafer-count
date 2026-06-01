@@ -276,8 +276,8 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                 sb.Append("<th class='sortable' data-col='1' data-type='text' onclick='sortBy(this)'>EQPID<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='2' data-type='text' onclick='sortBy(this)'>METERTYPE<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='3' data-type='num' onclick='sortBy(this)'>DATA_VAL<span class='arr'></span></th>");
-                sb.Append("<th class='sortable' data-col='4' data-type='spec' onclick='sortBy(this)'>SPEC<span class='arr'></span></th>");
-                sb.Append("<th class='sortable' data-col='5' data-type='num' onclick='sortBy(this)'>DIFF<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='4' data-type='num' onclick='sortBy(this)'>DIFF<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='5' data-type='spec' onclick='sortBy(this)'>SPEC<span class='arr'></span></th>");
                 sb.Append("</tr>");
 
                 // 資料列：在 <tr> 加 data-entity（= GROUP 欄值），供前端依 checkbox 過濾
@@ -300,6 +300,8 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                     sb.Append("<td>").Append(Server.HtmlEncode(eqpid)).Append("</td>");
                     sb.Append("<td>").Append(Server.HtmlEncode(meter)).Append("</td>");
                     sb.Append("<td class='valCell'>").Append(Server.HtmlEncode(dataVal)).Append("</td>");
+                    // DIFF：前端即時計算
+                    sb.Append("<td class='diffCell'></td>");
                     // SPEC：可編輯輸入框，data-default 供「重置」用，data-key 供存檔/共用
                     sb.Append("<td><input type='text' class='specInput' style='width:90px;' data-key='");
                     sb.Append(Server.HtmlEncode(specKey));
@@ -308,8 +310,6 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                     sb.Append("' value='");
                     sb.Append(Server.HtmlEncode(specDef));
                     sb.Append("' oninput='onSpecInput(this)' /></td>");
-                    // DIFF：前端即時計算
-                    sb.Append("<td class='diffCell'></td>");
                     sb.Append("</tr>");
                 }
 
@@ -507,7 +507,7 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
 
   // 預設：DIFF 欄由小到大排序（等 spec 載入、DIFF 算好後才排）
   function defaultSortDiffAsc(){
-    var th = document.querySelector('#dataTable th[data-col=\'5\']');
+    var th = document.querySelector('#dataTable th[data-col=\'4\']');
     if(!th) return;
     sortState.col = -1; sortState.dir = 1; // 確保 sortBy 視為升冪
     window.sortBy(th);
