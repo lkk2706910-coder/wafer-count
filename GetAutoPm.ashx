@@ -120,13 +120,14 @@ FROM
     ) sp
     OUTER APPLY
     (
-        -- 取前 7 天(今天以前)每天 move = MAXQ - MINQ 的平均；只計入正值
+        -- 取前 7 天(今天以前)每天 move = MAXQ - MINQ 的平均；只計入 (0, 3000]
         SELECT AVG(CAST(u.MAXQ - u.MINQ AS decimal(18,4))) AS AVG_MOVE
         FROM GPTPoCDB.dbo._MeterUEDA_DB09 u
         WHERE u.EQCH = b.EQPID AND u.METERTYPE = b.METERTYPE
           AND u.TXNDATE >= DATEADD(DAY, -7, CAST(GETDATE() AS date))
           AND u.TXNDATE < CAST(GETDATE() AS date)
           AND (u.MAXQ - u.MINQ) > 0
+          AND (u.MAXQ - u.MINQ) <= 3000
     ) mv
     WHERE b.GRP IS NOT NULL
       AND
