@@ -182,70 +182,6 @@ WHERE g.[GROUP] IS NOT NULL
 ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     }
 
-    // 依「群組 + 類別」回傳 spec 預設值（字串；無對應回 ""）
-    // 類別由顯示用 METERTYPE 與 EQPID 推導：
-    //   BUFFER(MF)：dispMeter 以 BUFFER 開頭
-    //   A-PM / B-PM：NISACVD chamber
-    //   CH：SACVD chamber（單一值，不分 A/B-PM）
-    // NISACVD_4DC 另分 CHA/B 與 CHC（看 chamber 字母）
-    private static string SpecDefault(string group, string dispEqpid, string dispMeter)
-    {
-        if (string.IsNullOrWhiteSpace(group)) return "";
-        string g = group.ToUpperInvariant();
-        string m = (dispMeter ?? "").ToUpperInvariant();
-
-        bool isBuffer = m.StartsWith("BUFFER");
-        bool isApm = m == "A-PM";
-        bool isBpm = m == "B-PM";
-
-        // chamber 字母（子機台 dispEqpid 結尾為 A/B/C；MF 結尾為 -MF）
-        char ch = '\0';
-        if (!string.IsNullOrEmpty(dispEqpid) && !dispEqpid.ToUpperInvariant().EndsWith("-MF"))
-        {
-            ch = char.ToUpperInvariant(dispEqpid[dispEqpid.Length - 1]);
-        }
-
-        switch (g)
-        {
-            case "NISACVD_SIN":
-                if (isBuffer) return "150000";
-                if (isApm) return "33000";
-                if (isBpm) return "16500";
-                break;
-            case "NISACVD_LTUSG":
-                if (isBuffer) return "150000";
-                if (isApm) return "35200";
-                if (isBpm) return "15000";
-                break;
-            case "NISACVD_4DC":
-                if (isBuffer) return "150000";
-                if (ch == 'C')
-                {
-                    if (isApm) return "33000";
-                    if (isBpm) return "16500";
-                }
-                else // CHA / CHB
-                {
-                    if (isApm) return "44000";
-                    if (isBpm) return "11000";
-                }
-                break;
-            case "SACVD_HARP":
-                return isBuffer ? "96800" : "3300";
-            case "SACVD_SA":
-                return isBuffer ? "96800" : "8400";
-            case "SACVD_SMT":
-                return isBuffer ? "96800" : "22000";
-        }
-        return "";
-    }
-
-    // spec 的識別鍵：每一列獨立（EQPID + METERTYPE），編輯互不影響
-    private static string SpecKey(string group, string dispEqpid, string dispMeter)
-    {
-        return (dispEqpid ?? "") + "|" + (dispMeter ?? "");
-    }
-
     private void BindTable()
     {
         phTable.Controls.Clear();
@@ -287,7 +223,7 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                 sb.Append("<th class='sortable' data-col='2' data-type='text' onclick='sortBy(this)'>METERTYPE<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='3' data-type='num' onclick='sortBy(this)'>DATA_VAL<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='4' data-type='num' onclick='sortBy(this)'>DIFF<span class='arr'></span></th>");
-                sb.Append("<th class='sortable' data-col='5' data-type='spec' onclick='sortBy(this)'>SPEC<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='5' data-type='num' onclick='sortBy(this)'>SPEC<span class='arr'></span></th>");
                 sb.Append("</tr>");
 
                 // 資料列：在 <tr> 加 data-entity（= GROUP 欄值），供前端依 checkbox 過濾
@@ -299,13 +235,8 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                     string eqpid = reader["EQPID"].ToString();
                     string meter = reader["METERTYPE"].ToString();
                     string dataVal = reader["DATA_VAL"].ToString();
-                    // SPEC 預設值：優先用 DB(_MeterTarget_DB09.ALARM)，讀不到才退回硬編預設
-                    string specFromDb = reader["SPEC_VAL"] == DBNull.Value ? null : reader["SPEC_VAL"].ToString();
-                    string specDef = !string.IsNullOrWhiteSpace(specFromDb)
-                        ? specFromDb.Trim()
-                        : SpecDefault(groupVal, eqpid, meter);
-                    // spec key：每列獨立（EQPID + METERTYPE）
-                    string specKey = SpecKey(groupVal, eqpid, meter);
+                    // SPEC 完全來自 DB(_MeterTarget_DB09.ALARM)，讀不到則留空
+                    string specDef = reader["SPEC_VAL"] == DBNull.Value ? "" : reader["SPEC_VAL"].ToString().Trim();
 
                     sb.Append("<tr data-entity='");
                     sb.Append(Server.HtmlEncode(groupVal));
@@ -316,14 +247,8 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                     sb.Append("<td class='valCell'>").Append(Server.HtmlEncode(dataVal)).Append("</td>");
                     // DIFF：前端即時計算
                     sb.Append("<td class='diffCell'></td>");
-                    // SPEC：可編輯輸入框，data-default 供「重置」用，data-key 供存檔/共用
-                    sb.Append("<td><input type='text' class='specInput' style='width:90px;' data-key='");
-                    sb.Append(Server.HtmlEncode(specKey));
-                    sb.Append("' data-default='");
-                    sb.Append(Server.HtmlEncode(specDef));
-                    sb.Append("' value='");
-                    sb.Append(Server.HtmlEncode(specDef));
-                    sb.Append("' oninput='onSpecInput(this)' /></td>");
+                    // SPEC：唯讀顯示，直接取自 DB
+                    sb.Append("<td class='specCell'>").Append(Server.HtmlEncode(specDef)).Append("</td>");
                     sb.Append("</tr>");
                 }
 
@@ -375,10 +300,7 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     window.filterEntities();
   };
 
-  // ---------- SPEC (editable) + DIFF (現值 - SPEC) ----------
-  var SPEC_KEY = 'wc_spec_' + TOOL;     // sessionStorage cache key
-  var saveTimer = null;
-
+  // ---------- DIFF (SPEC - 現值)，SPEC 唯讀，完全來自 DB ----------
   function parseNum(s){
     s = (s == null) ? '' : String(s).trim().replace(/,/g,'');
     if(s === '') return NaN;
@@ -386,14 +308,13 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     return isNaN(v) ? NaN : v;
   }
 
-  function recalcRow(input){
-    var row = input.closest('tr');
-    if(!row) return;
+  function recalcRow(row){
     var valCell = row.querySelector('.valCell');
+    var specCell = row.querySelector('.specCell');
     var diffCell = row.querySelector('.diffCell');
     if(!diffCell) return;
     var v = parseNum(valCell ? valCell.textContent : '');
-    var sp = parseNum(input.value);
+    var sp = parseNum(specCell ? specCell.textContent : '');
     if(isNaN(v) || isNaN(sp)){ diffCell.textContent = ''; diffCell.className = 'diffCell'; return; }
     var diff = sp - v;
     // 不顯示正負號，僅顯示數值大小
@@ -403,65 +324,8 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
   }
 
   function recalcAll(){
-    var inputs = document.querySelectorAll('.specInput');
-    for(var i=0;i<inputs.length;i++){ recalcRow(inputs[i]); }
-  }
-
-  window.onSpecInput = function(input){
-    recalcRow(input);
-    // debounce 存檔
-    if(saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(saveSpecs, 600);
-  };
-
-  function collectSpecs(){
-    var map = {};
-    var inputs = document.querySelectorAll('.specInput');
-    for(var i=0;i<inputs.length;i++){
-      map[inputs[i].getAttribute('data-key')] = inputs[i].value.trim();
-    }
-    return map;
-  }
-
-  function applySpecs(map){
-    if(!map) return;
-    var inputs = document.querySelectorAll('.specInput');
-    for(var i=0;i<inputs.length;i++){
-      var k = inputs[i].getAttribute('data-key');
-      if(Object.prototype.hasOwnProperty.call(map, k) && map[k] !== ''){
-        inputs[i].value = map[k];
-      }
-    }
-  }
-
-  async function saveSpecs(){
-    var map = collectSpecs();
-    try{ sessionStorage.setItem(SPEC_KEY, JSON.stringify(map)); }catch(e){}
-    try{
-      var form = new FormData();
-      form.append('tool', TOOL);
-      form.append('mode', 'SPEC');
-      form.append('json', JSON.stringify(map));
-      await fetch('./TF2api/SaveTargetJson.ashx?ts=' + Date.now(), { method:'POST', body:form });
-    }catch(e){}
-  }
-
-  async function loadSpecs(){
-    // 先用 sessionStorage 快取即時套用，再用伺服器值覆蓋
-    try{
-      var cached = JSON.parse(sessionStorage.getItem(SPEC_KEY) || 'null');
-      if(cached) applySpecs(cached);
-    }catch(e){}
-    recalcAll();
-    try{
-      var url = './TF2api/GetTargetJson.ashx?tool=' + encodeURIComponent(TOOL) + '&mode=SPEC&ts=' + Date.now();
-      var resp = await fetch(url, { cache:'no-store' });
-      if(resp.ok){
-        var js = await resp.json();
-        if(js && js.ok && js.data) applySpecs(js.data);
-      }
-    }catch(e){}
-    recalcAll();
+    var rows = document.querySelectorAll('#dataTable tr[data-entity]');
+    for(var i=0;i<rows.length;i++){ recalcRow(rows[i]); }
   }
 
   // ---------- column sorting (client-side) ----------
@@ -471,11 +335,6 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     var cells = row.children;
     var cell = cells[col];
     if(!cell) return type === 'text' ? '' : NaN;
-    if(type === 'spec'){
-      var inp = cell.querySelector('input');
-      var raw = inp ? inp.value : cell.textContent;
-      return parseFloat(String(raw).replace(/,/g,''));
-    }
     if(type === 'num'){
       var t = (cell.textContent || '').replace(/[+,]/g,'').trim();
       return parseFloat(t);
@@ -527,10 +386,10 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     window.sortBy(th);
   }
 
-  async function init(){
+  function init(){
     restoreEntities();
     window.filterEntities();
-    await loadSpecs();
+    recalcAll();
     defaultSortDiffAsc();
   }
   if(document.readyState === 'loading'){
