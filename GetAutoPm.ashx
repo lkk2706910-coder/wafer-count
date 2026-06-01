@@ -62,7 +62,14 @@ FROM
 (
     SELECT
         b.EQPID,
-        b.METERTYPE,
+        -- 顯示用量測項：WET_CLEAN(SACVD/NISACVD) 顯示為 B-PM；
+        -- MF 的 BUFFER_WET_CLEAN / BUFFER-PM 統一顯示為 BUFFER-PM；其餘照原值
+        -- (底層仍用 b.METERTYPE 抓 SPEC / move，僅改顯示文字)
+        CASE
+            WHEN b.METERTYPE = 'WET_CLEAN' THEN 'B-PM'
+            WHEN b.METERTYPE IN ('BUFFER_WET_CLEAN','BUFFER-PM') THEN 'BUFFER-PM'
+            ELSE b.METERTYPE
+        END AS METERTYPE,
         CASE WHEN b.ISMF = 1 THEN b.EQPID + '-MF' ELSE b.EQPID END AS DISP_EQPID,
         b.GRP,
         CASE
