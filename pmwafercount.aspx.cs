@@ -132,7 +132,7 @@ FROM
             : "x.METERTYPE") + @" AS DISP_METERTYPE,
         -- SPEC：從 _MeterTarget_DB09 以 EQCH+METERTYPE 對應，取 ALARM 當 spec 值
         sp.SPEC_VAL,
-        -- AVG MOVE：_MeterUEDA_DB09 前一個自然月每天 CNTQ 的平均
+        -- AVG MOVE：_MeterUEDA_DB09 由當日往前一個月每天 CNTQ 的平均
         mv.AVG_MOVE
     FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
     OUTER APPLY
@@ -144,12 +144,12 @@ FROM
     ) sp
     OUTER APPLY
     (
-        -- 前一個自然月：[本月1號-1月, 本月1號)
+        -- 由當日往前一個月：[今天-1月, 今天]
         SELECT AVG(CAST(u.CNTQ AS decimal(18,4))) AS AVG_MOVE
         FROM GPTPoCDB.dbo._MeterUEDA_DB09 u
         WHERE u.EQCH = x.EQPID AND u.METERTYPE = x.METERTYPE
-          AND u.TXNDATE >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
-          AND u.TXNDATE <  DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+          AND u.TXNDATE >= DATEADD(MONTH, -1, CAST(GETDATE() AS date))
+          AND u.TXNDATE <= CAST(GETDATE() AS date)
     ) mv
     WHERE
         (
