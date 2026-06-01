@@ -110,6 +110,7 @@ SELECT
     s.DISP_EQPID AS EQPID,
     s.DISP_METERTYPE AS METERTYPE,
     s.DATA_VAL,
+    s.AVG_MOVE,
     s.SPEC_VAL
 FROM
 (
@@ -130,7 +131,9 @@ FROM
             ? "CASE WHEN x.METERTYPE = 'WET_CLEAN' THEN 'B-PM' ELSE x.METERTYPE END"
             : "x.METERTYPE") + @" AS DISP_METERTYPE,
         -- SPEC：從 _MeterTarget_DB09 以 EQCH+METERTYPE 對應，取 ALARM 當 spec 值
-        sp.SPEC_VAL
+        sp.SPEC_VAL,
+        -- AVG MOVE：_MeterUEDA_DB09 前一個自然月每天 CNTQ 的平均
+        mv.AVG_MOVE
     FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
     OUTER APPLY
     (
@@ -139,6 +142,15 @@ FROM
         WHERE t.EQCH = x.EQPID AND t.METERTYPE = x.METERTYPE
         ORDER BY t.LASTREADINGTIME DESC
     ) sp
+    OUTER APPLY
+    (
+        -- 前一個自然月：[本月1號-1月, 本月1號)
+        SELECT AVG(CAST(u.CNTQ AS decimal(18,4))) AS AVG_MOVE
+        FROM GPTPoCDB.dbo._MeterUEDA_DB09 u
+        WHERE u.EQCH = x.EQPID AND u.METERTYPE = x.METERTYPE
+          AND u.TXNDATE >= DATEADD(MONTH, -1, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1))
+          AND u.TXNDATE <  DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+    ) mv
     WHERE
         (
             -- 子機台(chamber)
@@ -223,7 +235,8 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                 sb.Append("<th class='sortable' data-col='2' data-type='text' onclick='sortBy(this)'>METERTYPE<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='3' data-type='num' onclick='sortBy(this)'>DATA_VAL<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='4' data-type='num' onclick='sortBy(this)'>DIFF<span class='arr'></span></th>");
-                sb.Append("<th class='sortable' data-col='5' data-type='num' onclick='sortBy(this)'>SPEC<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='5' data-type='num' onclick='sortBy(this)'>Avg. move<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='6' data-type='num' onclick='sortBy(this)'>SPEC<span class='arr'></span></th>");
                 sb.Append("</tr>");
 
                 // 資料列：在 <tr> 加 data-entity（= GROUP 欄值），供前端依 checkbox 過濾
@@ -237,6 +250,13 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                     string dataVal = reader["DATA_VAL"].ToString();
                     // SPEC 完全來自 DB(_MeterTarget_DB09.ALARM)，讀不到則留空
                     string specDef = reader["SPEC_VAL"] == DBNull.Value ? "" : reader["SPEC_VAL"].ToString().Trim();
+                    // Avg. move：前一個月每天 CNTQ 的平均（_MeterUEDA_DB09），四捨五入到整數
+                    string avgMove = "";
+                    if (reader["AVG_MOVE"] != DBNull.Value)
+                    {
+                        decimal am = Convert.ToDecimal(reader["AVG_MOVE"]);
+                        avgMove = Math.Round(am, MidpointRounding.AwayFromZero).ToString("0");
+                    }
 
                     sb.Append("<tr data-entity='");
                     sb.Append(Server.HtmlEncode(groupVal));
@@ -247,6 +267,8 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                     sb.Append("<td class='valCell'>").Append(Server.HtmlEncode(dataVal)).Append("</td>");
                     // DIFF：前端即時計算
                     sb.Append("<td class='diffCell'></td>");
+                    // Avg. move：唯讀顯示，取自 DB
+                    sb.Append("<td class='moveCell'>").Append(Server.HtmlEncode(avgMove)).Append("</td>");
                     // SPEC：唯讀顯示，直接取自 DB
                     sb.Append("<td class='specCell'>").Append(Server.HtmlEncode(specDef)).Append("</td>");
                     sb.Append("</tr>");

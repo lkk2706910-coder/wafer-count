@@ -179,6 +179,7 @@
         tr:nth-child(even) td { background: #fafcff; }
         .noData { padding: 14px; color: #888; }
 
+        #dataTable .moveCell { text-align: right; font-variant-numeric: tabular-nums; color: #355160; }
         #dataTable .specCell { text-align: right; font-variant-numeric: tabular-nums; color: #355160; }
         #dataTable .diffCell { text-align: right; font-variant-numeric: tabular-nums; }
         #dataTable .diffCell.over { color: #d93025; font-weight: 700; }
