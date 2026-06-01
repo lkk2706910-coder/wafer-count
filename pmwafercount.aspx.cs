@@ -293,10 +293,15 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                 var sb = new StringBuilder(1024 * 8);
                 sb.Append("<table id='dataTable'>");
 
-                // 表頭：GROUP / EQPID / METERTYPE / DATA_VAL + SPEC(可編輯) + DIFF(現值-SPEC)
+                // 表頭：GROUP / EQPID / METERTYPE / DATA_VAL + SPEC(可編輯) + DIFF(SPEC-現值)
+                // 每欄可點擊排序（前端，不 postback）；data-type 決定數值或文字排序
                 sb.Append("<tr>");
-                sb.Append("<th>GROUP</th><th>EQPID</th><th>METERTYPE</th><th>DATA_VAL</th>");
-                sb.Append("<th>SPEC</th><th>DIFF</th>");
+                sb.Append("<th class='sortable' data-col='0' data-type='text' onclick='sortBy(this)'>GROUP<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='1' data-type='text' onclick='sortBy(this)'>EQPID<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='2' data-type='text' onclick='sortBy(this)'>METERTYPE<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='3' data-type='num' onclick='sortBy(this)'>DATA_VAL<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='4' data-type='spec' onclick='sortBy(this)'>SPEC<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='5' data-type='num' onclick='sortBy(this)'>DIFF<span class='arr'></span></th>");
                 sb.Append("</tr>");
 
                 // 資料列：在 <tr> 加 data-entity（= GROUP 欄值），供前端依 checkbox 過濾
@@ -478,6 +483,61 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     }catch(e){}
     recalcAll();
   }
+
+  // ---------- column sorting (client-side) ----------
+  var sortState = { col: -1, dir: 1 };
+
+  function cellSortValue(row, col, type){
+    var cells = row.children;
+    var cell = cells[col];
+    if(!cell) return type === 'text' ? '' : NaN;
+    if(type === 'spec'){
+      var inp = cell.querySelector('input');
+      var raw = inp ? inp.value : cell.textContent;
+      return parseFloat(String(raw).replace(/,/g,''));
+    }
+    if(type === 'num'){
+      var t = (cell.textContent || '').replace(/[+,]/g,'').trim();
+      return parseFloat(t);
+    }
+    return (cell.textContent || '').trim().toUpperCase();
+  }
+
+  window.sortBy = function(th){
+    var table = document.getElementById('dataTable');
+    if(!table) return;
+    var col = parseInt(th.getAttribute('data-col'), 10);
+    var type = th.getAttribute('data-type');
+
+    if(sortState.col === col){ sortState.dir = -sortState.dir; }
+    else { sortState.col = col; sortState.dir = 1; }
+    var dir = sortState.dir;
+
+    var rows = Array.prototype.slice.call(table.querySelectorAll('tr[data-entity]'));
+    rows.sort(function(a, b){
+      var av = cellSortValue(a, col, type);
+      var bv = cellSortValue(b, col, type);
+      if(type === 'text'){
+        return av < bv ? -dir : (av > bv ? dir : 0);
+      }
+      // 數值：NaN 永遠排最後
+      var an = isNaN(av), bn = isNaN(bv);
+      if(an && bn) return 0;
+      if(an) return 1;
+      if(bn) return -1;
+      return (av - bv) * dir;
+    });
+
+    for(var i=0;i<rows.length;i++){ table.appendChild(rows[i]); }
+
+    // 更新表頭箭頭指示
+    var ths = table.querySelectorAll('th.sortable .arr');
+    for(var j=0;j<ths.length;j++){ ths[j].textContent = ''; }
+    var arr = th.querySelector('.arr');
+    if(arr) arr.textContent = dir > 0 ? ' ▲' : ' ▼';
+
+    window.filterEntities();
+  };
 
   function init(){ restoreEntities(); window.filterEntities(); loadSpecs(); }
   if(document.readyState === 'loading'){

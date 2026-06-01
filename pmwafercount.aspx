@@ -190,6 +190,10 @@
         #dataTable .diffCell { text-align: right; font-variant-numeric: tabular-nums; }
         #dataTable .diffCell.over { color: #d93025; font-weight: 700; }
 
+        #dataTable th.sortable { cursor: pointer; user-select: none; }
+        #dataTable th.sortable:hover { background: linear-gradient(#7cc8f2, #4a9ccb); }
+        #dataTable th .arr { font-size: 11px; }
+
         /* ----- PM schedule view ----- */
         .pmLayout {
             display: flex;
