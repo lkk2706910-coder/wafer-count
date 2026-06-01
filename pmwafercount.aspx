@@ -274,7 +274,7 @@
 
         .dayNum { font-weight: 700; font-size: 12px; color: #355160; }
         .dayNum.sun { color: #d93025; }
-        .dayNum.sat { color: #2f7fb4; }
+        .dayNum.sat { color: #d93025; }
 
         .addPm {
             border: none;
