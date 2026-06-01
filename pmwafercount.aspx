@@ -677,7 +677,11 @@
                 var arr = PM.data[dk];
                 for (var mi = 0; mi < arr.length; mi++) {
                     var me = arr[mi];
-                    if (!me.auto && me.metertype) manualKeys[autoKey(me.eqpid, me.metertype)] = true;
+                    if (!me.auto && me.metertype) {
+                        // metertype 可能是合併的「A-PM,B-PM」→ 拆開分別登記，抑制各自的自動項
+                        var mts = me.metertype.split(',');
+                        for (var mz = 0; mz < mts.length; mz++) manualKeys[autoKey(me.eqpid, mts[mz].trim())] = true;
+                    }
                 }
             }
 
@@ -764,15 +768,51 @@
             PM.autoList = [];
             var allItems = fixedItems.concat(freeItems);
             allItems.sort(function (a, b) { return a._ds < b._ds ? -1 : (a._ds > b._ds ? 1 : (a._key < b._key ? -1 : 1)); });
+
+            // 同機台同日的 A-PM + B-PM → 併成一筆顯示「eqpid · A-PM,B-PM」
+            var pairIdx = {};
+            for (var pi = 0; pi < allItems.length; pi++) {
+                var p = allItems[pi];
+                if (p._mt !== 'A-PM' && p._mt !== 'B-PM') continue;
+                var gk = p.eqpid + '@' + p._ds;
+                (pairIdx[gk] || (pairIdx[gk] = {}))[p._mt] = p;
+            }
+            var displayItems = [], consumed = {};
             for (var ai = 0; ai < allItems.length; ai++) {
                 var a = allItems[ai];
-                PM.autoList.push({ eqpid: a.eqpid, metertype: a._mt, group: a._ent, days: a.days, diff: a.diff, due: a._ds, overridden: a._ovr });
+                if (consumed[a._key + '@' + a._ds]) continue;
+                var grp = pairIdx[a.eqpid + '@' + a._ds];
+                if (grp && grp['A-PM'] && grp['B-PM']) {
+                    var av = grp['A-PM'], bv = grp['B-PM'];
+                    consumed[av._key + '@' + av._ds] = true;
+                    consumed[bv._key + '@' + bv._ds] = true;
+                    displayItems.push({
+                        id: 'auto:' + autoKey(a.eqpid, 'A-PM,B-PM'), merged: true,
+                        mergedKeys: [av._key, bv._key],
+                        eqpid: a.eqpid, metertype: 'A-PM,B-PM', group: a._ent,
+                        days: Math.min(av.days || 0, bv.days || 0),
+                        diff: (av.diff != null && bv.diff != null) ? Math.min(av.diff, bv.diff) : (av.diff != null ? av.diff : bv.diff),
+                        ds: a._ds, overridden: (av._ovr || bv._ovr)
+                    });
+                } else {
+                    displayItems.push({
+                        id: 'auto:' + a._key, merged: false, mergedKeys: null,
+                        eqpid: a.eqpid, metertype: a._mt, group: a._ent,
+                        days: a.days, diff: a.diff, ds: a._ds, overridden: a._ovr
+                    });
+                }
+            }
+
+            for (var ci = 0; ci < displayItems.length; ci++) {
+                var d = displayItems[ci];
+                PM.autoList.push({ eqpid: d.eqpid, metertype: d.metertype, group: d.group, days: d.days, diff: d.diff, due: d.ds, overridden: d.overridden });
                 // 只把落在當月的放進月曆格子
-                if (a._ds.substring(0, 7) !== ymStr(PM.year, PM.month)) continue;
-                if (!PM.data[a._ds]) PM.data[a._ds] = [];
-                PM.data[a._ds].push({
-                    id: 'auto:' + a._key, auto: true, overridden: a._ovr,
-                    eqpid: a.eqpid, metertype: a._mt, group: a._ent, days: a.days, diff: a.diff,
+                if (d.ds.substring(0, 7) !== ymStr(PM.year, PM.month)) continue;
+                if (!PM.data[d.ds]) PM.data[d.ds] = [];
+                PM.data[d.ds].push({
+                    id: d.id, auto: true, overridden: d.overridden,
+                    merged: d.merged, mergedKeys: d.mergedKeys,
+                    eqpid: d.eqpid, metertype: d.metertype, group: d.group, days: d.days, diff: d.diff,
                     action: '', retest: ''
                 });
             }
@@ -999,7 +1039,11 @@
 
             if (entry.auto) {
                 // 自動排程：把實際日期記成覆寫（暫存記憶體，按「儲存變更」才寫入）
-                PM.autoOverrides[autoKey(entry.eqpid, entry.metertype)] = toDate;
+                if (entry.merged && entry.mergedKeys) {
+                    for (var mk = 0; mk < entry.mergedKeys.length; mk++) PM.autoOverrides[entry.mergedKeys[mk]] = toDate;
+                } else {
+                    PM.autoOverrides[autoKey(entry.eqpid, entry.metertype)] = toDate;
+                }
                 entry.overridden = true;   // 改成「已移動」(淺藍)樣式
             }
             if (PM.editId === payload.id) {
