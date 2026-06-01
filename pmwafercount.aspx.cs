@@ -236,7 +236,8 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                 sb.Append("<th class='sortable' data-col='3' data-type='num' onclick='sortBy(this)'>DATA_VAL<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='4' data-type='num' onclick='sortBy(this)'>DIFF<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='5' data-type='num' onclick='sortBy(this)'>Avg. move(pair)<span class='arr'></span></th>");
-                sb.Append("<th class='sortable' data-col='6' data-type='num' onclick='sortBy(this)'>SPEC<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='6' data-type='num' onclick='sortBy(this)'>預估剩餘天數<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='7' data-type='num' onclick='sortBy(this)'>SPEC<span class='arr'></span></th>");
                 sb.Append("</tr>");
 
                 // 資料列：在 <tr> 加 data-entity（= GROUP 欄值），供前端依 checkbox 過濾
