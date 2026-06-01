@@ -214,6 +214,8 @@
         .pmAutoList .autoTbl td { padding: 4px 8px; font-size: 12px; border: 1px solid var(--line); }
         .pmAutoList .ovr { color: #b5731d; }
 
+        .pmDirtyTag { color: #c0392b; font-size: 12px; font-weight: 700; }
+        .pmSaveBtn:not([disabled]) { background: linear-gradient(#5bb6ea, #2f7fb4); color: #fff; border-color: #1f6fa0; }
         .pmLegend { margin-left: auto; display: inline-flex; gap: 12px; font-size: 12px; }
         .pmLegend .lgAuto { color: #b5731d; }
         .pmLegend .lgMoved { color: #2f7fb4; }
@@ -469,6 +471,9 @@
                         <div class="monthLabel" id="pmMonthLabel"></div>
                         <button type="button" class="navBtn" onclick="pmNextMonth()">&#9654;</button>
                         <button type="button" class="miniBtn" onclick="pmGoToday()">今天</button>
+                        <button type="button" class="miniBtn pmSaveBtn" onclick="pmSaveAll()" disabled>儲存變更</button>
+                        <button type="button" class="miniBtn pmRestoreBtn" onclick="pmRestore()" disabled>回復</button>
+                        <span class="pmDirtyTag hidden">● 未儲存</span>
                         <span class="pmLegend">
                             <span class="lg lgAuto">&#9650; 自動預估</span>
                             <span class="lg lgMoved">&#9650; 已移動</span>
@@ -492,7 +497,7 @@
                         <label>回線測機項目</label>
                         <textarea id="pmEdRetest" placeholder="輸入回線後要測試/驗證的項目"></textarea>
                         <div class="row">
-                            <button type="button" class="btn primary" onclick="pmSaveEntry()">儲存</button>
+                            <button type="button" class="btn primary" onclick="pmSaveEntry()">套用</button>
                             <button type="button" class="btn danger" id="pmDelBtn" onclick="pmDeleteEntry()">刪除</button>
                         </div>
                     </div>
@@ -507,6 +512,9 @@
                 <div class="monthLabel" id="waMonthLabel"></div>
                 <button type="button" class="navBtn" onclick="pmNextMonth()">&#9654;</button>
                 <button type="button" class="miniBtn" onclick="pmGoToday()">今天</button>
+                <button type="button" class="miniBtn pmSaveBtn" onclick="pmSaveAll()" disabled>儲存變更</button>
+                <button type="button" class="miniBtn pmRestoreBtn" onclick="pmRestore()" disabled>回復</button>
+                <span class="pmDirtyTag hidden">● 未儲存</span>
             </div>
             <div class="tableWrap">
                 <div id="waTable"></div>
@@ -517,7 +525,16 @@
     <script type="text/javascript">
     (function () {
         // ---------- tab switching (client-side, remembered) ----------
+        var activeView = '';
         window.showView = function (name) {
+            // 離開 PM/工作分配(兩者共用同一份工作副本)時，若有未儲存變更先提醒
+            var inPmGroup = (activeView === 'pm' || activeView === 'work');
+            var toPmGroup = (name === 'pm' || name === 'work');
+            if (inPmGroup && !toPmGroup && PM.dirty) {
+                if (!confirm('有未儲存的變更，切換分頁將捨棄這些變更，確定？')) return;
+                PM.loadMonth();   // 捨棄：重新載入回復到上次儲存狀態
+            }
+            activeView = name;
             var views = { wafer: 'waferView', pm: 'pmView', work: 'workView' };
             for (var k in views) {
                 var el = document.getElementById(views[k]);
@@ -535,7 +552,7 @@
 
         // ---------- PM schedule calendar ----------
         var PM = {
-            year: 0, month: 0, data: {}, loaded: false,
+            year: 0, month: 0, data: {}, loaded: false, dirty: false,
             editDate: null, editId: null
         };
         window.PM = PM;
@@ -573,6 +590,27 @@
             PM.closeEditor();
             PM.render();
             PM.renderWA();
+            PM.setDirty(false);   // 載入即為已儲存狀態
+        };
+
+        // ---------- 變更暫存：所有編輯先進記憶體，按「儲存變更」才寫入 ----------
+        PM.markDirty = function () { PM.setDirty(true); };
+        PM.setDirty = function (v) {
+            PM.dirty = !!v;
+            var btns = document.querySelectorAll('.pmSaveBtn, .pmRestoreBtn');
+            for (var i = 0; i < btns.length; i++) btns[i].disabled = !PM.dirty;
+            var tags = document.querySelectorAll('.pmDirtyTag');
+            for (var j = 0; j < tags.length; j++) tags[j].classList.toggle('hidden', !PM.dirty);
+        };
+        window.pmSaveAll = async function () {
+            if (!PM.dirty) return;
+            if (!(await PM.persist())) return;   // 手動排程(當月)；失敗會自行提示
+            await PM.saveAutoOverrides();         // 自動覆寫日期(全域)
+            PM.setDirty(false);
+        };
+        window.pmRestore = async function () {
+            if (PM.dirty && !confirm('確定捨棄未儲存的變更，回復到上次儲存的狀態？')) return;
+            await PM.loadMonth();                 // 重新載入，丟棄未儲存變更
         };
 
         // 讀自動排程清單 + 使用者覆寫日期，合併成 auto 項目放進 PM.data（不寫回手動排程檔）
@@ -938,25 +976,24 @@
             if (PM.editId === payload.id) { PM.editDate = toDate; }
 
             if (entry.auto) {
-                // 自動排程：把實際日期記成覆寫（存到 AUTOPM override，不寫進手動排程檔）
+                // 自動排程：把實際日期記成覆寫（暫存記憶體，按「儲存變更」才寫入）
                 PM.autoOverrides[autoKey(entry.eqpid, entry.metertype)] = toDate;
                 entry.overridden = true;   // 改成「已移動」(淺藍)樣式
-                PM.render();               // 先立刻重畫變藍，不等存檔回應
-                PM.saveAutoOverrides();     // 背景存檔
-            } else if (await PM.persist()) {
-                PM.render();
-                if (PM.editId === payload.id) {
-                    document.getElementById('pmEdDate').textContent = toDate;
-                }
             }
+            if (PM.editId === payload.id) {
+                document.getElementById('pmEdDate').textContent = toDate;
+            }
+            PM.markDirty();
+            PM.render();
         };
 
-        window.pmQuickDelete = async function (ds, id) {
+        window.pmQuickDelete = function (ds, id) {
             if (!confirm('確定刪除這筆 PM？')) return;
             PM.data[ds] = (PM.data[ds] || []).filter(function (x) { return x.id !== id; });
             if (PM.data[ds].length === 0) delete PM.data[ds];
             if (PM.editDate === ds && PM.editId === id) PM.closeEditor();
-            if (await PM.persist()) PM.render();
+            PM.markDirty();
+            PM.render();
         };
 
         window.pmSaveEntry = async function () {
@@ -977,7 +1014,6 @@
                 entry.eqpid = eqp; entry.action = action; entry.retest = retest;
                 PM.autoOverrides[autoKey(eqp, entry.metertype)] = ds;
                 PM.editId = entry.id;
-                await PM.saveAutoOverrides();
             } else if (entry) {
                 entry.eqpid = eqp; entry.action = action; entry.retest = retest;
             } else {
@@ -986,31 +1022,39 @@
                 PM.editId = entry.id;
             }
 
-            if (await PM.persist()) {
-                PM.render();
-                document.getElementById('pmDelBtn').classList.remove('hidden');
-            }
+            PM.markDirty();
+            PM.render();
+            document.getElementById('pmDelBtn').classList.remove('hidden');
         };
 
-        window.pmDeleteEntry = async function () {
+        window.pmDeleteEntry = function () {
             var ds = PM.editDate, id = PM.editId;
             if (!ds || !id) return;
             if (!confirm('確定刪除這筆 PM？')) return;
             var arr = PM.data[ds] || [];
             PM.data[ds] = arr.filter(function (x) { return x.id !== id; });
             if (PM.data[ds].length === 0) delete PM.data[ds];
-            if (await PM.persist()) { PM.closeEditor(); PM.render(); }
+            PM.markDirty();
+            PM.closeEditor();
+            PM.render();
         };
 
+        // 切換月份前若有未儲存變更先提醒(換月會重新載入而丟棄)
+        function pmConfirmLeave() {
+            return !PM.dirty || confirm('有未儲存的變更，切換月份將捨棄這些變更，確定？');
+        }
         window.pmPrevMonth = function () {
+            if (!pmConfirmLeave()) return;
             PM.month--; if (PM.month < 0) { PM.month = 11; PM.year--; }
             PM.loadMonth();
         };
         window.pmNextMonth = function () {
+            if (!pmConfirmLeave()) return;
             PM.month++; if (PM.month > 11) { PM.month = 0; PM.year++; }
             PM.loadMonth();
         };
         window.pmGoToday = function () {
+            if (!pmConfirmLeave()) return;
             var now = new Date();
             PM.year = now.getFullYear(); PM.month = now.getMonth();
             PM.loadMonth();
@@ -1056,12 +1100,17 @@
             box.innerHTML = html;
         };
 
-        window.pmSetPerson = async function (ds, id, value) {
+        window.pmSetPerson = function (ds, id, value) {
             var e = findEntry(ds, id);
             if (!e) return;
             e.person = value;
-            await PM.persist();
+            PM.markDirty();
         };
+
+        // 有未儲存變更時，關閉/重整頁面前提醒
+        window.addEventListener('beforeunload', function (e) {
+            if (PM.dirty) { e.preventDefault(); e.returnValue = ''; }
+        });
 
         // ---------- land on PM schedule (first load) or stay on Wafer Count (postback) ----------
         function boot() {
