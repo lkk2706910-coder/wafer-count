@@ -28,12 +28,12 @@ public class GetAutoPm : IHttpHandler
                 {
                     while (r.Read())
                     {
-                        items.Add(new
-                        {
-                            eqpid = r["DISP_EQPID"].ToString(),
-                            group = r["GRP"].ToString(),
-                            days = Convert.ToInt32(r["MIN_DAYS"])
-                        });
+                        // 用 Dictionary 明確指定 JSON key（避免匿名型別用到 C# 關鍵字 group）
+                        var item = new Dictionary<string, object>();
+                        item["eqpid"] = r["DISP_EQPID"] == DBNull.Value ? "" : r["DISP_EQPID"].ToString();
+                        item["group"] = r["GRP"] == DBNull.Value ? "" : r["GRP"].ToString();
+                        item["days"] = r["MIN_DAYS"] == DBNull.Value ? 0 : Convert.ToInt32(r["MIN_DAYS"]);
+                        items.Add(item);
                     }
                 }
             }
