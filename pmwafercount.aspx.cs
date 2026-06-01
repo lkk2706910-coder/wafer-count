@@ -76,8 +76,10 @@ public partial class GPTPoCDB_SampleSite_NotesTable : System.Web.UI.Page
     // 收兩種 EQPID：
     //   子機台(chamber)：TOOL-B + 兩碼數字 + 1碼字母(A/B/C)，例如 SACVD-B01A
     //   母機台(MF)      ：TOOL-B + 兩碼數字（無字母），例如 SACVD-B01，顯示時 EQPID 後加 -MF
-    // 每台允許的 METERTYPE 依機台而不同（NISACVD chamber 可能同時有 A-PM/B-PM/WET_CLEAN，
-    // 故一台可能出現多列）；兩者 MOM 都對到同一母機號，沿用同一份 entity 分類。
+    // METERTYPE 精準到每台（依使用者提供的清單），舊的不符 METERTYPE 不收：
+    //   SACVD  chamber → WET_CLEAN              ；MF → BUFFER_WET_CLEAN
+    //   NISACVD chamber：B01 → A-PM,B-PM         ；其餘 → A-PM,WET_CLEAN
+    //   NISACVD MF     ：B06/B07/B08 → BUFFER_WET_CLEAN；其餘 → BUFFER-PM
     private static string BuildEntitySql(string tool)
     {
         bool isNis = string.Equals(tool, "NISACVD", StringComparison.OrdinalIgnoreCase);
@@ -85,9 +87,22 @@ public partial class GPTPoCDB_SampleSite_NotesTable : System.Web.UI.Page
         // tool 來自受控集合(SACVD/NISACVD)，直接內嵌 LIKE prefix
         string toolLike = isNis ? "NISACVD-%" : "SACVD-%";
 
-        // 各範圍允許的 METERTYPE 清單（IN list）
+        // 內層粗收候選的 METERTYPE（union），精準過濾留到外層用 MOM 判斷
         string chamberMeters = isNis ? "'A-PM','B-PM','WET_CLEAN'" : "'WET_CLEAN'";
         string mfMeters = isNis ? "'BUFFER-PM','BUFFER_WET_CLEAN'" : "'BUFFER_WET_CLEAN'";
+
+        // 外層精準 METERTYPE 條件（每台只收指定的那幾種）
+        string meterPredicate = isNis
+            ? @"(
+        (s.ISMF = 0 AND s.MOM = 'NISACVD-B01' AND s.METERTYPE IN ('A-PM','B-PM'))
+        OR (s.ISMF = 0 AND s.MOM <> 'NISACVD-B01' AND s.METERTYPE IN ('A-PM','WET_CLEAN'))
+        OR (s.ISMF = 1 AND s.MOM IN ('NISACVD-B06','NISACVD-B07','NISACVD-B08') AND s.METERTYPE = 'BUFFER_WET_CLEAN')
+        OR (s.ISMF = 1 AND s.MOM NOT IN ('NISACVD-B06','NISACVD-B07','NISACVD-B08') AND s.METERTYPE = 'BUFFER-PM')
+    )"
+            : @"(
+        (s.ISMF = 0 AND s.METERTYPE = 'WET_CLEAN')
+        OR (s.ISMF = 1 AND s.METERTYPE = 'BUFFER_WET_CLEAN')
+    )";
 
         return @"
 SELECT
@@ -101,6 +116,8 @@ FROM
         x.EQPID,
         x.METERTYPE,
         x.DATA_VAL,
+        -- 母機台(結尾為數字)= 1；子機台 = 0
+        CASE WHEN x.EQPID LIKE '%[0-9]' THEN 1 ELSE 0 END AS ISMF,
         -- 母機台(結尾為數字)：MOM 即自身；子機台：砍掉結尾字母
         CASE WHEN x.EQPID LIKE '%[0-9]' THEN x.EQPID
              ELSE LEFT(x.EQPID, LEN(x.EQPID) - 1) END AS MOM,
@@ -147,6 +164,7 @@ CROSS APPLY
         END AS GRP_ORD
 ) g
 WHERE g.[GROUP] IS NOT NULL
+  AND " + meterPredicate + @"
 ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     }
 
