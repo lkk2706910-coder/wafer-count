@@ -120,12 +120,13 @@ FROM
     ) sp
     OUTER APPLY
     (
-        SELECT AVG(CAST(u.MAXQ - u.MINQ AS decimal(18,4))) AS AVG_MOVE
+        -- 取前一天(今天以前最近一天)的 move = MAXQ - MINQ；只取正值
+        SELECT TOP 1 CAST(u.MAXQ - u.MINQ AS decimal(18,4)) AS AVG_MOVE
         FROM GPTPoCDB.dbo._MeterUEDA_DB09 u
         WHERE u.EQCH = b.EQPID AND u.METERTYPE = b.METERTYPE
-          AND u.TXNDATE >= DATEADD(MONTH, -1, CAST(GETDATE() AS date))
-          AND u.TXNDATE <= CAST(GETDATE() AS date)
+          AND u.TXNDATE < CAST(GETDATE() AS date)
           AND (u.MAXQ - u.MINQ) > 0
+        ORDER BY u.TXNDATE DESC
     ) mv
     WHERE b.GRP IS NOT NULL
       AND
