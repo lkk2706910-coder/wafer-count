@@ -235,7 +235,7 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                 sb.Append("<th class='sortable' data-col='2' data-type='text' onclick='sortBy(this)'>METERTYPE<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='3' data-type='num' onclick='sortBy(this)'>DATA_VAL<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='4' data-type='num' onclick='sortBy(this)'>DIFF<span class='arr'></span></th>");
-                sb.Append("<th class='sortable' data-col='5' data-type='num' onclick='sortBy(this)'>Avg. move<span class='arr'></span></th>");
+                sb.Append("<th class='sortable' data-col='5' data-type='num' onclick='sortBy(this)'>Avg. move(pair)<span class='arr'></span></th>");
                 sb.Append("<th class='sortable' data-col='6' data-type='num' onclick='sortBy(this)'>SPEC<span class='arr'></span></th>");
                 sb.Append("</tr>");
 
