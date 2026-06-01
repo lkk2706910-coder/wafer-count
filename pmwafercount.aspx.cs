@@ -145,13 +145,13 @@ FROM
     OUTER APPLY
     (
         -- 由當日往前一個月：[今天-1月, 今天]
-        -- move 數 = 當天 MAXQ - MINQ；排除 move = 0 的天數
+        -- move 數 = 當天 MAXQ - MINQ；只計入正值(排除 0 與重置/異常造成的負值)
         SELECT AVG(CAST(u.MAXQ - u.MINQ AS decimal(18,4))) AS AVG_MOVE
         FROM GPTPoCDB.dbo._MeterUEDA_DB09 u
         WHERE u.EQCH = x.EQPID AND u.METERTYPE = x.METERTYPE
           AND u.TXNDATE >= DATEADD(MONTH, -1, CAST(GETDATE() AS date))
           AND u.TXNDATE <= CAST(GETDATE() AS date)
-          AND (u.MAXQ - u.MINQ) <> 0
+          AND (u.MAXQ - u.MINQ) > 0
     ) mv
     WHERE
         (

@@ -125,7 +125,7 @@ FROM
         WHERE u.EQCH = b.EQPID AND u.METERTYPE = b.METERTYPE
           AND u.TXNDATE >= DATEADD(MONTH, -1, CAST(GETDATE() AS date))
           AND u.TXNDATE <= CAST(GETDATE() AS date)
-          AND (u.MAXQ - u.MINQ) <> 0
+          AND (u.MAXQ - u.MINQ) > 0
     ) mv
     WHERE b.GRP IS NOT NULL
       AND
