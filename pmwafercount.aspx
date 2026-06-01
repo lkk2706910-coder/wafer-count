@@ -610,29 +610,95 @@
             } catch (e) { PM.autoError = String(e); }
             PM.autoLoaded = true;
 
-            // 計算每台到期日（含未來月份），存成完整清單供「自動排程清單」面板使用
+            // ---- 自動分配每筆 PM 的日期 ----
+            // 規則：1) 平日每天最多 3 台，且同 entity(群組) 一天最多 1 台
+            //       2) 六日盡量不排，不得已才排且當天最多 1 台
+            //       3) 只往前挪(不晚於到期日、不早於今天)；使用者拖過的(overridden)固定不動
             var today = new Date();
-            PM.autoList = [];
+            var todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+            // 每日負載：{ 'YYYY-MM-DD': { n: 台數, ents: {entity:true} } }
+            var dayLoad = {};
+            function loadOf(ds) { return dayLoad[ds] || (dayLoad[ds] = { n: 0, ents: {} }); }
+            function isWeekendDs(ds) {
+                var p = ds.split('-');
+                var wd = new Date(+p[0], +p[1] - 1, +p[2]).getDay();
+                return wd === 0 || wd === 6;
+            }
+            function placeAt(ds, ent) {
+                var ld = loadOf(ds); ld.n++; if (ent) ld.ents[ent] = true;
+            }
+
+            // 拆成「固定(已覆寫)」與「待分配」兩類
+            var fixedItems = [], freeItems = [];
             for (var i = 0; i < list.length; i++) {
                 var it = list[i];
-                var mt = it.metertype || '';
-                var key = autoKey(it.eqpid, mt);          // eqpid|metertype，A-PM/B-PM 各自獨立
-                var ds, overridden = false;
-                if (PM.autoOverrides[key]) {
-                    ds = PM.autoOverrides[key];            // 使用者拖過的實際日期
-                    overridden = true;
+                it._mt = it.metertype || '';
+                it._key = autoKey(it.eqpid, it._mt);   // eqpid|metertype，A-PM/B-PM 各自獨立
+                it._ent = it.group || '';
+                if (PM.autoOverrides[it._key]) {
+                    it._ds = PM.autoOverrides[it._key]; // 使用者拖過的實際日期
+                    it._ovr = true;
+                    fixedItems.push(it);
                 } else {
-                    var due = new Date(today.getFullYear(), today.getMonth(), today.getDate() + (it.days || 0));
-                    ds = dStr(due.getFullYear(), due.getMonth(), due.getDate());
+                    var due = new Date(todayMid.getFullYear(), todayMid.getMonth(), todayMid.getDate() + (it.days || 0));
+                    it._due = dStr(due.getFullYear(), due.getMonth(), due.getDate());
+                    it._ovr = false;
+                    freeItems.push(it);
                 }
-                PM.autoList.push({ eqpid: it.eqpid, metertype: mt, group: it.group || '', days: it.days, diff: it.diff, due: ds, overridden: overridden });
+            }
+            // 固定項目先占用日期
+            for (var fi = 0; fi < fixedItems.length; fi++) placeAt(fixedItems[fi]._ds, fixedItems[fi]._ent);
 
+            // 待分配：急者(到期日早)優先 → 剩餘天 → 機台，逐筆找位
+            freeItems.sort(function (a, b) {
+                if (a._due !== b._due) return a._due < b._due ? -1 : 1;
+                if ((a.days || 0) !== (b.days || 0)) return (a.days || 0) - (b.days || 0);
+                return a._key < b._key ? -1 : (a._key > b._key ? 1 : 0);
+            });
+            // 由到期日往前掃到今天的日期字串(含兩端)
+            function backFromDue(dueDs) {
+                var p = dueDs.split('-');
+                var d = new Date(+p[0], +p[1] - 1, +p[2]);
+                var arr = [];
+                while (d >= todayMid) { arr.push(dStr(d.getFullYear(), d.getMonth(), d.getDate())); d.setDate(d.getDate() - 1); }
+                return arr;
+            }
+            for (var k2 = 0; k2 < freeItems.length; k2++) {
+                var fit = freeItems[k2];
+                var cand = backFromDue(fit._due);   // [到期日, …, 今天]
+                var picked = null;
+                // 第一輪：平日，總數 < 3 且同 entity 當天未占用
+                for (var ci = 0; ci < cand.length && !picked; ci++) {
+                    var ds2 = cand[ci];
+                    if (isWeekendDs(ds2)) continue;
+                    var ld = loadOf(ds2);
+                    if (ld.n < 3 && !(fit._ent && ld.ents[fit._ent])) picked = ds2;
+                }
+                // 第二輪：不得已才排六日，當天最多 1 台
+                for (var cj = 0; cj < cand.length && !picked; cj++) {
+                    var ds3 = cand[cj];
+                    if (isWeekendDs(ds3) && loadOf(ds3).n < 1) picked = ds3;
+                }
+                // 仍無位：退回到期日(超量，盡力而為)
+                if (!picked) picked = fit._due;
+                fit._ds = picked;
+                placeAt(picked, fit._ent);
+            }
+
+            // ---- 組 autoList 並放進當月月曆 ----
+            PM.autoList = [];
+            var allItems = fixedItems.concat(freeItems);
+            allItems.sort(function (a, b) { return a._ds < b._ds ? -1 : (a._ds > b._ds ? 1 : (a._key < b._key ? -1 : 1)); });
+            for (var ai = 0; ai < allItems.length; ai++) {
+                var a = allItems[ai];
+                PM.autoList.push({ eqpid: a.eqpid, metertype: a._mt, group: a._ent, days: a.days, diff: a.diff, due: a._ds, overridden: a._ovr });
                 // 只把落在當月的放進月曆格子
-                if (ds.substring(0, 7) !== ymStr(PM.year, PM.month)) continue;
-                if (!PM.data[ds]) PM.data[ds] = [];
-                PM.data[ds].push({
-                    id: 'auto:' + key, auto: true, overridden: overridden,
-                    eqpid: it.eqpid, metertype: mt, group: it.group || '', days: it.days, diff: it.diff,
+                if (a._ds.substring(0, 7) !== ymStr(PM.year, PM.month)) continue;
+                if (!PM.data[a._ds]) PM.data[a._ds] = [];
+                PM.data[a._ds].push({
+                    id: 'auto:' + a._key, auto: true, overridden: a._ovr,
+                    eqpid: a.eqpid, metertype: a._mt, group: a._ent, days: a.days, diff: a.diff,
                     action: '', retest: ''
                 });
             }
@@ -653,7 +719,7 @@
             if (rows.length === 0 && !PM.autoError) {
                 html += '<div class="muted" style="padding:6px;">沒有可預估的機台（可能 SPEC 或 Avg.move 缺值）。</div>';
             } else {
-                html += '<table class="autoTbl"><tr><th>機台</th><th>量測項</th><th>群組</th><th>剩餘片數</th><th>剩餘天</th><th>到期日</th></tr>';
+                html += '<table class="autoTbl"><tr><th>機台</th><th>量測項</th><th>群組</th><th>剩餘片數</th><th>剩餘天</th><th>排定日</th></tr>';
                 for (var i = 0; i < rows.length; i++) {
                     var rw = rows[i];
                     var ym = rw.due.substring(0, 7);
@@ -681,7 +747,7 @@
 
         // 自動重排：清掉所有拖拉覆寫，全部機台回到預估到期日並重新載入
         window.pmAutoReschedule = async function () {
-            if (!confirm('自動重排會清除所有手動移動過的自動排程（回到預估日期），確定？')) return;
+            if (!confirm('自動重排會清除所有手動移動過的自動排程（回到自動分配的排定日），確定？')) return;
             PM.autoOverrides = {};
             await PM.saveAutoOverrides();
             await PM.loadMonth();
