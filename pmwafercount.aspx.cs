@@ -132,7 +132,7 @@ FROM
             : "x.METERTYPE") + @" AS DISP_METERTYPE,
         -- SPEC：從 _MeterTarget_DB09 以 EQCH+METERTYPE 對應，取 ALARM 當 spec 值
         sp.SPEC_VAL,
-        -- AVG MOVE：_MeterUEDA_DB09 取前 7 天每天 move(MAXQ-MINQ) 的平均
+        -- AVG MOVE：_MeterUEDA_DB09 取前 30 天每天 move(MAXQ-MINQ) 的平均
         mv.AVG_MOVE
     FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
     OUTER APPLY
@@ -144,12 +144,12 @@ FROM
     ) sp
     OUTER APPLY
     (
-        -- 取前 7 天(今天以前)每天 move = MAXQ - MINQ 的平均
+        -- 取前 30 天(今天以前)每天 move = MAXQ - MINQ 的平均
         -- 只計入 (0, 3000]：排除 0、負值(重置/異常)及大於 3000 的異常值
         SELECT AVG(CAST(u.MAXQ - u.MINQ AS decimal(18,4))) AS AVG_MOVE
         FROM GPTPoCDB.dbo._MeterUEDA_DB09 u
         WHERE u.EQCH = x.EQPID AND u.METERTYPE = x.METERTYPE
-          AND u.TXNDATE >= DATEADD(DAY, -7, CAST(GETDATE() AS date))
+          AND u.TXNDATE >= DATEADD(DAY, -30, CAST(GETDATE() AS date))
           AND u.TXNDATE < CAST(GETDATE() AS date)
           AND (u.MAXQ - u.MINQ) > 0
           AND (u.MAXQ - u.MINQ) <= 3000
