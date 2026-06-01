@@ -206,6 +206,10 @@
             margin-bottom: 10px;
         }
 
+        .pmLegend { margin-left: auto; display: inline-flex; gap: 12px; font-size: 12px; }
+        .pmLegend .lgAuto { color: #b5731d; }
+        .pmLegend .lgManual { color: #36a35b; }
+
         .pmCalHead .monthLabel {
             font-size: 18px;
             font-weight: 700;
@@ -297,6 +301,17 @@
         .pmItem.dragging { opacity: 0.4; }
         .pmItem .dot { color: #36a35b; font-weight: 700; flex: 0 0 auto; }
         .pmItem .dot.empty { color: #d99a00; }
+
+        /* auto-scheduled PM item */
+        .pmItem.auto {
+            background: #fff4e6;
+            border: 1px dashed #e0a45c;
+            color: #9a5b14;
+        }
+        .pmItem.auto:hover { background: #ffe9cf; }
+        .pmItem.auto.selected { background: #d98e2b; color: #fff; border-color: #b5731d; }
+        .pmItem.auto .dot.auto { color: #d98e2b; }
+        .pmItem.auto.selected .dot.auto { color: #fff; }
 
         .pmItem .pmLabel {
             flex: 1 1 auto;
@@ -433,6 +448,10 @@
                         <div class="monthLabel" id="pmMonthLabel"></div>
                         <button type="button" class="navBtn" onclick="pmNextMonth()">&#9654;</button>
                         <button type="button" class="miniBtn" onclick="pmGoToday()">今天</button>
+                        <span class="pmLegend">
+                            <span class="lg lgAuto">&#9650; 自動預估</span>
+                            <span class="lg lgManual">&#9679; 手動</span>
+                        </span>
                     </div>
                     <div id="pmCalendar"></div>
                 </div>
@@ -504,6 +523,9 @@
         var WD = ['日', '一', '二', '三', '四', '五', '六'];
         var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+        PM.autoOverrides = {};   // { eqpid: 'YYYY-MM-DD' } 使用者拖拉後的實際日期
+        PM.autoLoaded = false;
+
         PM.init = function () {
             var now = new Date();
             PM.year = now.getFullYear();
@@ -521,16 +543,79 @@
             } catch (e) {
                 PM.data = {};
             }
+            await PM.loadAuto();
             PM.closeEditor();
             PM.render();
             PM.renderWA();
         };
 
+        // 讀自動排程清單 + 使用者覆寫日期，合併成 auto 項目放進 PM.data（不寫回手動排程檔）
+        PM.loadAuto = async function () {
+            // 先清掉舊的 auto 項目（每次重算）
+            for (var k in PM.data) {
+                if (!PM.data.hasOwnProperty(k)) continue;
+                PM.data[k] = PM.data[k].filter(function (e) { return !e.auto; });
+                if (PM.data[k].length === 0) delete PM.data[k];
+            }
+
+            // 覆寫日期（拖拉後記住的實際日期）
+            try {
+                var ro = await fetch('./TF2api/GetTargetJson.ashx?tool=AUTOPM&mode=OVERRIDE&ts=' + Date.now(), { cache: 'no-store' });
+                var jo = await ro.json();
+                PM.autoOverrides = (jo && jo.ok && jo.data) ? jo.data : {};
+            } catch (e) { PM.autoOverrides = {}; }
+
+            // 自動排程：每台預估到期日
+            var list = [];
+            try {
+                var ra = await fetch('./TF2api/GetAutoPm.ashx?ts=' + Date.now(), { cache: 'no-store' });
+                var ja = await ra.json();
+                if (ja && ja.ok && ja.items) list = ja.items;
+            } catch (e) { list = []; }
+            PM.autoLoaded = true;
+
+            var today = new Date();
+            for (var i = 0; i < list.length; i++) {
+                var it = list[i];
+                var ds;
+                if (PM.autoOverrides[it.eqpid]) {
+                    ds = PM.autoOverrides[it.eqpid];        // 使用者拖過的實際日期
+                } else {
+                    var due = new Date(today.getFullYear(), today.getMonth(), today.getDate() + (it.days || 0));
+                    ds = dStr(due.getFullYear(), due.getMonth(), due.getDate());
+                }
+                // 只放本月份的格子
+                if (ds.substring(0, 7) !== ymStr(PM.year, PM.month)) continue;
+                if (!PM.data[ds]) PM.data[ds] = [];
+                PM.data[ds].push({
+                    id: 'auto:' + it.eqpid, auto: true,
+                    eqpid: it.eqpid, group: it.group || '', days: it.days,
+                    action: '', retest: ''
+                });
+            }
+        };
+
+        // 儲存 auto 的覆寫日期
+        PM.saveAutoOverrides = async function () {
+            var form = new FormData();
+            form.append('tool', 'AUTOPM');
+            form.append('mode', 'OVERRIDE');
+            form.append('json', JSON.stringify(PM.autoOverrides));
+            try { await fetch('./TF2api/SaveTargetJson.ashx?ts=' + Date.now(), { method: 'POST', body: form }); } catch (e) {}
+        };
+
         PM.persist = async function () {
             var ym = ymStr(PM.year, PM.month);
+            // 只存手動項目；auto 項目不寫進排程檔（由 GetAutoPm + 覆寫日期動態產生）
+            var manual = {};
+            for (var k in PM.data) {
+                if (!PM.data.hasOwnProperty(k)) continue;
+                var keep = PM.data[k].filter(function (e) { return !e.auto; });
+                if (keep.length) manual[k] = keep;
+            }
             var form = new FormData();
             form.append('ym', ym);
-            form.append('json', JSON.stringify(PM.data));
+            form.append('json', JSON.stringify(manual));
             var resp = await fetch('./TF2api/SavePmSchedule.ashx?ts=' + Date.now(), { method: 'POST', body: form });
             var txt = await resp.text();
             if (!resp.ok) { alert('儲存失敗：HTTP ' + resp.status + '\n' + txt); return false; }
@@ -572,17 +657,27 @@
                     var items = PM.data[ds] || [];
                     for (var i = 0; i < items.length; i++) {
                         var it = items[i];
-                        var hasAction = (it.action && it.action.trim()) || (it.retest && it.retest.trim());
                         var sel = (PM.editDate === ds && PM.editId === it.id) ? ' selected' : '';
-                        html += '<span class="pmItem' + sel + '" draggable="true"'
-                              + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + esc(it.eqpid) + '"'
-                              + ' ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)">'
-                              + '<span class="dot' + (hasAction ? '' : ' empty') + '">&#9679;</span>'
-                              + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '(未命名)') + '</span>'
-                              + '<span class="pmActions">'
-                              + '<button type="button" class="iconBtn" title="編輯" onclick="event.stopPropagation(); pmEdit(\'' + ds + '\',\'' + it.id + '\')">&#9998;</button>'
-                              + '<button type="button" class="iconBtn" title="刪除" onclick="event.stopPropagation(); pmQuickDelete(\'' + ds + '\',\'' + it.id + '\')">&#10005;</button>'
-                              + '</span></span>';
+                        if (it.auto) {
+                            // 自動排程項目：可拖拉(改實際日期)、可點擊編輯，樣式區隔
+                            html += '<span class="pmItem auto' + sel + '" draggable="true"'
+                                  + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + esc(it.eqpid) + ' (預估 ' + (it.days || 0) + ' 天)"'
+                                  + ' ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)">'
+                                  + '<span class="dot auto">&#9650;</span>'
+                                  + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '') + '</span>'
+                                  + '</span>';
+                        } else {
+                            var hasAction = (it.action && it.action.trim()) || (it.retest && it.retest.trim());
+                            html += '<span class="pmItem' + sel + '" draggable="true"'
+                                  + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + esc(it.eqpid) + '"'
+                                  + ' ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)">'
+                                  + '<span class="dot' + (hasAction ? '' : ' empty') + '">&#9679;</span>'
+                                  + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '(未命名)') + '</span>'
+                                  + '<span class="pmActions">'
+                                  + '<button type="button" class="iconBtn" title="編輯" onclick="event.stopPropagation(); pmEdit(\'' + ds + '\',\'' + it.id + '\')">&#9998;</button>'
+                                  + '<button type="button" class="iconBtn" title="刪除" onclick="event.stopPropagation(); pmQuickDelete(\'' + ds + '\',\'' + it.id + '\')">&#10005;</button>'
+                                  + '</span></span>';
+                        }
                     }
                     html += '</div></td>';
                     day++;
@@ -657,16 +752,19 @@
             var entry = findEntry(payload.d, payload.id);
             if (!entry) return;
 
-            // remove from source day, append to target day
+            // move in-memory regardless of type
             PM.data[payload.d] = (PM.data[payload.d] || []).filter(function (x) { return x.id !== payload.id; });
             if (PM.data[payload.d].length === 0) delete PM.data[payload.d];
             if (!PM.data[toDate]) PM.data[toDate] = [];
             PM.data[toDate].push(entry);
-
-            // follow the moved item if it was being edited
             if (PM.editId === payload.id) { PM.editDate = toDate; }
 
-            if (await PM.persist()) {
+            if (entry.auto) {
+                // 自動排程：把實際日期記成覆寫（存到 AUTOPM override，不寫進手動排程檔）
+                PM.autoOverrides[entry.eqpid] = toDate;
+                await PM.saveAutoOverrides();
+                PM.render();
+            } else if (await PM.persist()) {
                 PM.render();
                 if (PM.editId === payload.id) {
                     document.getElementById('pmEdDate').textContent = toDate;
@@ -692,7 +790,16 @@
 
             if (!PM.data[ds]) PM.data[ds] = [];
             var entry = PM.editId ? findEntry(ds, PM.editId) : null;
-            if (entry) {
+            if (entry && entry.auto) {
+                // 編輯自動項目 → 轉成手動 PM（填了 action/測機項目就「確定」這筆），
+                // 並記住覆寫日期，避免重算時又冒出同一台 auto
+                entry.auto = false;
+                entry.id = genId();
+                entry.eqpid = eqp; entry.action = action; entry.retest = retest;
+                PM.autoOverrides[eqp] = ds;
+                PM.editId = entry.id;
+                await PM.saveAutoOverrides();
+            } else if (entry) {
                 entry.eqpid = eqp; entry.action = action; entry.retest = retest;
             } else {
                 entry = { id: genId(), eqpid: eqp, action: action, retest: retest };
