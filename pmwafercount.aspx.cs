@@ -269,6 +269,8 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
                     sb.Append("<td class='diffCell'></td>");
                     // Avg. move：唯讀顯示，取自 DB
                     sb.Append("<td class='moveCell'>").Append(Server.HtmlEncode(avgMove)).Append("</td>");
+                    // 預估剩餘天數：前端依 (SPEC-現值)/Avg.move 即時計算
+                    sb.Append("<td class='daysCell'></td>");
                     // SPEC：唯讀顯示，直接取自 DB
                     sb.Append("<td class='specCell'>").Append(Server.HtmlEncode(specDef)).Append("</td>");
                     sb.Append("</tr>");
@@ -334,15 +336,36 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     var valCell = row.querySelector('.valCell');
     var specCell = row.querySelector('.specCell');
     var diffCell = row.querySelector('.diffCell');
+    var moveCell = row.querySelector('.moveCell');
+    var daysCell = row.querySelector('.daysCell');
     if(!diffCell) return;
     var v = parseNum(valCell ? valCell.textContent : '');
     var sp = parseNum(specCell ? specCell.textContent : '');
-    if(isNaN(v) || isNaN(sp)){ diffCell.textContent = ''; diffCell.className = 'diffCell'; return; }
+    if(isNaN(v) || isNaN(sp)){
+      diffCell.textContent = ''; diffCell.className = 'diffCell';
+      if(daysCell){ daysCell.textContent = ''; daysCell.className = 'daysCell'; }
+      return;
+    }
     var diff = sp - v;
     // 不顯示正負號，僅顯示數值大小
     diffCell.textContent = Math.abs(diff);
     // 現值已達/超過 spec（差值 <= 0）標紅
     diffCell.className = 'diffCell' + (diff <= 0 ? ' over' : '');
+
+    // 預估剩餘天數 = (SPEC - 現值) / Avg.move，無條件捨去；Avg.move 無效則留空
+    if(daysCell){
+      var mv = parseNum(moveCell ? moveCell.textContent : '');
+      if(isNaN(mv) || mv <= 0){
+        daysCell.textContent = '';
+        daysCell.className = 'daysCell';
+      }else{
+        var days = Math.floor(diff / mv);
+        if(days < 0) days = 0;
+        daysCell.textContent = days;
+        // 已達 spec(剩 0 天)標紅
+        daysCell.className = 'daysCell' + (days <= 0 ? ' over' : '');
+      }
+    }
   }
 
   function recalcAll(){
