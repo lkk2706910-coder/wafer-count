@@ -543,6 +543,8 @@
         function ymStr(y, m) { return y + '-' + pad(m + 1); }
         function dStr(y, m, d) { return y + '-' + pad(m + 1) + '-' + pad(d); }
         function genId() { return 'pm' + Date.now() + Math.floor(Math.random() * 1000); }
+        // 自動排程覆寫鍵：同一台不同量測項(A-PM/B-PM…)各自獨立
+        function autoKey(eqpid, metertype) { return (eqpid || '') + '|' + (metertype || ''); }
         var WD = ['日', '一', '二', '三', '四', '五', '六'];
         var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -613,22 +615,24 @@
             PM.autoList = [];
             for (var i = 0; i < list.length; i++) {
                 var it = list[i];
+                var mt = it.metertype || '';
+                var key = autoKey(it.eqpid, mt);          // eqpid|metertype，A-PM/B-PM 各自獨立
                 var ds, overridden = false;
-                if (PM.autoOverrides[it.eqpid]) {
-                    ds = PM.autoOverrides[it.eqpid];        // 使用者拖過的實際日期
+                if (PM.autoOverrides[key]) {
+                    ds = PM.autoOverrides[key];            // 使用者拖過的實際日期
                     overridden = true;
                 } else {
                     var due = new Date(today.getFullYear(), today.getMonth(), today.getDate() + (it.days || 0));
                     ds = dStr(due.getFullYear(), due.getMonth(), due.getDate());
                 }
-                PM.autoList.push({ eqpid: it.eqpid, group: it.group || '', days: it.days, diff: it.diff, due: ds, overridden: overridden });
+                PM.autoList.push({ eqpid: it.eqpid, metertype: mt, group: it.group || '', days: it.days, diff: it.diff, due: ds, overridden: overridden });
 
                 // 只把落在當月的放進月曆格子
                 if (ds.substring(0, 7) !== ymStr(PM.year, PM.month)) continue;
                 if (!PM.data[ds]) PM.data[ds] = [];
                 PM.data[ds].push({
-                    id: 'auto:' + it.eqpid, auto: true, overridden: overridden,
-                    eqpid: it.eqpid, group: it.group || '', days: it.days, diff: it.diff,
+                    id: 'auto:' + key, auto: true, overridden: overridden,
+                    eqpid: it.eqpid, metertype: mt, group: it.group || '', days: it.days, diff: it.diff,
                     action: '', retest: ''
                 });
             }
@@ -649,12 +653,13 @@
             if (rows.length === 0 && !PM.autoError) {
                 html += '<div class="muted" style="padding:6px;">沒有可預估的機台（可能 SPEC 或 Avg.move 缺值）。</div>';
             } else {
-                html += '<table class="autoTbl"><tr><th>機台</th><th>群組</th><th>剩餘片數</th><th>剩餘天</th><th>到期日</th></tr>';
+                html += '<table class="autoTbl"><tr><th>機台</th><th>量測項</th><th>群組</th><th>剩餘片數</th><th>剩餘天</th><th>到期日</th></tr>';
                 for (var i = 0; i < rows.length; i++) {
                     var rw = rows[i];
                     var ym = rw.due.substring(0, 7);
                     html += '<tr>'
                           + '<td>' + esc(rw.eqpid) + '</td>'
+                          + '<td>' + esc(rw.metertype || '') + '</td>'
                           + '<td>' + esc(rw.group) + '</td>'
                           + '<td style="text-align:right;">' + (rw.diff != null ? rw.diff : '') + '</td>'
                           + '<td style="text-align:right;">' + (rw.days != null ? rw.days : '') + '</td>'
@@ -748,11 +753,12 @@
                         if (it.auto) {
                             // 自動排程項目：純預估=橘色，已手動移動過=淺藍色；可拖拉、可點擊編輯
                             var movedCls = it.overridden ? ' moved' : '';
+                            var mtTxt = it.metertype ? (' · ' + it.metertype) : '';
                             html += '<span class="pmItem auto' + movedCls + sel + '" draggable="true"'
-                                  + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + esc(it.eqpid) + ' (預估 ' + (it.days || 0) + ' 天)"'
+                                  + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + esc(it.eqpid) + esc(mtTxt) + ' (預估 ' + (it.days || 0) + ' 天)"'
                                   + ' ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)">'
                                   + '<span class="dot auto">&#9650;</span>'
-                                  + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '') + '</span>'
+                                  + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '') + esc(mtTxt) + '</span>'
                                   + '</span>';
                         } else {
                             var hasAction = (it.action && it.action.trim()) || (it.retest && it.retest.trim());
@@ -849,7 +855,7 @@
 
             if (entry.auto) {
                 // 自動排程：把實際日期記成覆寫（存到 AUTOPM override，不寫進手動排程檔）
-                PM.autoOverrides[entry.eqpid] = toDate;
+                PM.autoOverrides[autoKey(entry.eqpid, entry.metertype)] = toDate;
                 entry.overridden = true;   // 改成「已移動」(淺藍)樣式
                 PM.render();               // 先立刻重畫變藍，不等存檔回應
                 PM.saveAutoOverrides();     // 背景存檔
@@ -885,7 +891,7 @@
                 entry.auto = false;
                 entry.id = genId();
                 entry.eqpid = eqp; entry.action = action; entry.retest = retest;
-                PM.autoOverrides[eqp] = ds;
+                PM.autoOverrides[autoKey(eqp, entry.metertype)] = ds;
                 PM.editId = entry.id;
                 await PM.saveAutoOverrides();
             } else if (entry) {

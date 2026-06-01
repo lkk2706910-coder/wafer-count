@@ -31,6 +31,7 @@ public class GetAutoPm : IHttpHandler
                         // 用 Dictionary 明確指定 JSON key（避免匿名型別用到 C# 關鍵字 group）
                         var item = new Dictionary<string, object>();
                         item["eqpid"] = r["DISP_EQPID"] == DBNull.Value ? "" : r["DISP_EQPID"].ToString();
+                        item["metertype"] = r["METERTYPE"] == DBNull.Value ? "" : r["METERTYPE"].ToString();
                         item["group"] = r["GRP"] == DBNull.Value ? "" : r["GRP"].ToString();
                         item["days"] = r["MIN_DAYS"] == DBNull.Value ? 0 : Convert.ToInt32(r["MIN_DAYS"]);
                         item["diff"] = r["MIN_DIFF"] == DBNull.Value
@@ -53,6 +54,7 @@ public class GetAutoPm : IHttpHandler
     private const string Sql = @"
 SELECT
     d.DISP_EQPID,
+    d.METERTYPE,
     d.GRP,
     d.DAYS AS MIN_DAYS,
     d.DIFFV AS MIN_DIFF
@@ -60,6 +62,7 @@ FROM
 (
     SELECT
         b.EQPID,
+        b.METERTYPE,
         CASE WHEN b.ISMF = 1 THEN b.EQPID + '-MF' ELSE b.EQPID END AS DISP_EQPID,
         b.GRP,
         CASE
@@ -72,9 +75,9 @@ FROM
         -- 剩餘片數 = SPEC - 現值（DIFF）
         CASE WHEN sp.SPEC IS NULL THEN NULL
              ELSE sp.SPEC - TRY_CONVERT(decimal(18,4), b.DATA_VAL) END AS DIFFV,
-        -- 每台取 DAYS 最小那一列
+        -- 每台「每個量測項」各取一列（A-PM、B-PM…各自一筆）
         ROW_NUMBER() OVER (
-            PARTITION BY CASE WHEN b.ISMF = 1 THEN b.EQPID + '-MF' ELSE b.EQPID END
+            PARTITION BY CASE WHEN b.ISMF = 1 THEN b.EQPID + '-MF' ELSE b.EQPID END, b.METERTYPE
             ORDER BY
                 CASE
                     WHEN sp.SPEC IS NULL OR mv.AVG_MOVE IS NULL OR mv.AVG_MOVE <= 0 THEN NULL
