@@ -417,6 +417,7 @@
         table.waTable td { border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; vertical-align: top; }
         table.waTable tr:nth-child(even) td { background: #fafcff; }
         table.waTable .waContent { white-space: pre-wrap; max-width: 420px; }
+        table.waTable .waDate { white-space: nowrap; font-weight: 600; color: #244657; }
         table.waTable .waPerson {
             width: 100%; box-sizing: border-box; border: 1px solid var(--line);
             border-radius: 6px; padding: 5px 8px; font-size: 13px; font-family: inherit;
@@ -1088,9 +1089,15 @@
             for (var r = 0; r < rows.length; r++) {
                 var ds2 = rows[r].ds, e = rows[r].e;
                 var content = (e.action && e.action.trim()) ? esc(e.action) : '<span class="muted">(未填)</span>';
-                html += '<tr>'
-                      + '<td>' + esc(ds2) + '</td>'
-                      + '<td>' + esc(e.eqpid || '') + '</td>'
+                var mtTxt = e.metertype ? (' · ' + esc(e.metertype)) : '';
+                html += '<tr>';
+                // 同一天的多台機台：日期只在該天第一列顯示，並用 rowspan 合併
+                if (r === 0 || rows[r - 1].ds !== ds2) {
+                    var span = 1;
+                    while (r + span < rows.length && rows[r + span].ds === ds2) span++;
+                    html += '<td class="waDate"' + (span > 1 ? ' rowspan="' + span + '"' : '') + '>' + esc(ds2) + '</td>';
+                }
+                html += '<td>' + esc(e.eqpid || '') + mtTxt + '</td>'
                       + '<td class="waContent">' + content + '</td>'
                       + '<td><input type="text" class="waPerson" value="' + esc(e.person || '') + '"'
                       + ' placeholder="輸入人員" onchange="pmSetPerson(&#39;' + ds2 + '&#39;,&#39;' + esc(e.id) + '&#39;, this.value)" /></td>'
