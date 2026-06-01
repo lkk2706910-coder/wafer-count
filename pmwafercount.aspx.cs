@@ -68,7 +68,10 @@ public partial class GPTPoCDB_SampleSite_NotesTable : System.Web.UI.Page
     }
 
     // Entity 分類查詢：限定單一機台，GROUP 依母機號對到 entity，依群組順序 → EQPID 排序
-    // EQPID 格式：TOOL-B + 兩碼數字 + 1碼字母(A/B/C)，例如 SACVD-B01A；METERTYPE = WET_CLEAN
+    // 收兩種 EQPID：
+    //   子機台(chamber)：TOOL-B + 兩碼數字 + 1碼字母(A/B/C)，例如 SACVD-B01A
+    //   母機台(MF)      ：TOOL-B + 兩碼數字（無字母），例如 SACVD-B01，顯示時 EQPID 後加 -MF
+    // 兩者 MOM 都對到同一母機號，沿用同一份 entity 分類；METERTYPE = WET_CLEAN
     private static string BuildEntitySql(string tool)
     {
         // tool 來自受控集合(SACVD/NISACVD)，直接內嵌 LIKE prefix
@@ -79,7 +82,7 @@ public partial class GPTPoCDB_SampleSite_NotesTable : System.Web.UI.Page
         return @"
 SELECT
     g.[GROUP],
-    s.EQPID,
+    s.DISP_EQPID AS EQPID,
     s.METERTYPE,
     s.DATA_VAL
 FROM
@@ -88,12 +91,19 @@ FROM
         x.EQPID,
         x.METERTYPE,
         x.DATA_VAL,
-        LEFT(x.EQPID, LEN(x.EQPID) - 1) AS MOM
+        -- 母機台(結尾為數字)：MOM 即自身；子機台：砍掉結尾字母
+        CASE WHEN x.EQPID LIKE '%[0-9]' THEN x.EQPID
+             ELSE LEFT(x.EQPID, LEN(x.EQPID) - 1) END AS MOM,
+        -- 母機台顯示加 -MF；子機台維持原樣
+        CASE WHEN x.EQPID LIKE '%[0-9]' THEN x.EQPID + '-MF'
+             ELSE x.EQPID END AS DISP_EQPID
     FROM GPTDB_EAS.dbo.XSITEUSAGEMETER_P56 x
     WHERE
         (
             x.EQPID LIKE 'SACVD-B[0-9][0-9][ABC]'
             OR x.EQPID LIKE 'NISACVD-B[0-9][0-9][ABC]'
+            OR x.EQPID LIKE 'SACVD-B[0-9][0-9]'
+            OR x.EQPID LIKE 'NISACVD-B[0-9][0-9]'
         )
         AND x.METERTYPE = 'WET_CLEAN'
         AND x.EQPID LIKE '" + toolLike + @"'
