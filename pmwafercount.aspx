@@ -206,6 +206,14 @@
             margin-bottom: 10px;
         }
 
+        .pmAutoList { margin-top: 12px; }
+        .pmAutoList .autoErr { color: #c0392b; background: #fdecea; border: 1px solid #f5c6c0; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 12px; white-space: pre-wrap; }
+        .pmAutoList .autoHd { font-weight: 700; color: #244657; margin-bottom: 6px; }
+        .pmAutoList .autoTbl { border-collapse: collapse; width: 100%; }
+        .pmAutoList .autoTbl th { background: #eef4f9; color: #27414f; text-align: left; padding: 5px 8px; font-size: 12px; border: 1px solid var(--line); position: static; }
+        .pmAutoList .autoTbl td { padding: 4px 8px; font-size: 12px; border: 1px solid var(--line); }
+        .pmAutoList .ovr { color: #b5731d; }
+
         .pmLegend { margin-left: auto; display: inline-flex; gap: 12px; font-size: 12px; }
         .pmLegend .lgAuto { color: #b5731d; }
         .pmLegend .lgManual { color: #36a35b; }
@@ -454,6 +462,7 @@
                         </span>
                     </div>
                     <div id="pmCalendar"></div>
+                    <div id="pmAutoList" class="pmAutoList"></div>
                 </div>
 
                 <div class="pmEditor">
@@ -567,24 +576,40 @@
 
             // 自動排程：每台預估到期日
             var list = [];
+            PM.autoError = '';
             try {
                 var ra = await fetch('./TF2api/GetAutoPm.ashx?ts=' + Date.now(), { cache: 'no-store' });
-                var ja = await ra.json();
-                if (ja && ja.ok && ja.items) list = ja.items;
-            } catch (e) { list = []; }
+                var txt = await ra.text();
+                var ja = null;
+                try { ja = JSON.parse(txt); } catch (e) {}
+                if (!ra.ok) {
+                    PM.autoError = 'HTTP ' + ra.status + (txt ? (' - ' + txt.substring(0, 300)) : '');
+                } else if (ja && ja.ok && ja.items) {
+                    list = ja.items;
+                } else if (ja && !ja.ok) {
+                    PM.autoError = ja.error || 'unknown error';
+                } else {
+                    PM.autoError = '回應格式無法解析：' + txt.substring(0, 300);
+                }
+            } catch (e) { PM.autoError = String(e); }
             PM.autoLoaded = true;
 
+            // 計算每台到期日（含未來月份），存成完整清單供「自動排程清單」面板使用
             var today = new Date();
+            PM.autoList = [];
             for (var i = 0; i < list.length; i++) {
                 var it = list[i];
-                var ds;
+                var ds, overridden = false;
                 if (PM.autoOverrides[it.eqpid]) {
                     ds = PM.autoOverrides[it.eqpid];        // 使用者拖過的實際日期
+                    overridden = true;
                 } else {
                     var due = new Date(today.getFullYear(), today.getMonth(), today.getDate() + (it.days || 0));
                     ds = dStr(due.getFullYear(), due.getMonth(), due.getDate());
                 }
-                // 只放本月份的格子
+                PM.autoList.push({ eqpid: it.eqpid, group: it.group || '', days: it.days, due: ds, overridden: overridden });
+
+                // 只把落在當月的放進月曆格子
                 if (ds.substring(0, 7) !== ymStr(PM.year, PM.month)) continue;
                 if (!PM.data[ds]) PM.data[ds] = [];
                 PM.data[ds].push({
@@ -593,6 +618,44 @@
                     action: '', retest: ''
                 });
             }
+            PM.renderAutoList();
+        };
+
+        // 自動排程清單（不受月份限制，方便確認是否有資料、跳到對應月份）
+        PM.renderAutoList = function () {
+            var box = document.getElementById('pmAutoList');
+            if (!box) return;
+            var rows = PM.autoList || [];
+            var html = '';
+            if (PM.autoError) {
+                html += '<div class="autoErr">自動排程讀取失敗：' + esc(PM.autoError) + '</div>';
+            }
+            html += '<div class="autoHd">自動排程清單（' + rows.length + ' 台）</div>';
+            if (rows.length === 0 && !PM.autoError) {
+                html += '<div class="muted" style="padding:6px;">沒有可預估的機台（可能 SPEC 或 Avg.move 缺值）。</div>';
+            } else {
+                html += '<table class="autoTbl"><tr><th>機台</th><th>群組</th><th>剩餘天</th><th>到期日</th></tr>';
+                for (var i = 0; i < rows.length; i++) {
+                    var rw = rows[i];
+                    var ym = rw.due.substring(0, 7);
+                    html += '<tr>'
+                          + '<td>' + esc(rw.eqpid) + '</td>'
+                          + '<td>' + esc(rw.group) + '</td>'
+                          + '<td style="text-align:right;">' + (rw.days != null ? rw.days : '') + '</td>'
+                          + '<td><a href="#" onclick="pmGotoMonth(\'' + ym + '\'); return false;">' + esc(rw.due) + '</a>'
+                          + (rw.overridden ? ' <span class="ovr">(已調整)</span>' : '') + '</td>'
+                          + '</tr>';
+                }
+                html += '</table>';
+            }
+            box.innerHTML = html;
+        };
+
+        window.pmGotoMonth = function (ym) {
+            var parts = ym.split('-');
+            PM.year = parseInt(parts[0], 10);
+            PM.month = parseInt(parts[1], 10) - 1;
+            PM.loadMonth();
         };
 
         // 儲存 auto 的覆寫日期
