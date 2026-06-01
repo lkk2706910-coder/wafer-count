@@ -208,7 +208,7 @@
 
         .pmAutoList { margin-top: 12px; }
         .pmAutoList .autoErr { color: #c0392b; background: #fdecea; border: 1px solid #f5c6c0; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 12px; white-space: pre-wrap; }
-        .pmAutoList .autoHd { font-weight: 700; color: #244657; margin-bottom: 6px; }
+        .pmAutoList .autoHd { font-weight: 700; color: #244657; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
         .pmAutoList .autoTbl { border-collapse: collapse; width: 100%; }
         .pmAutoList .autoTbl th { background: #eef4f9; color: #27414f; text-align: left; padding: 5px 8px; font-size: 12px; border: 1px solid var(--line); position: static; }
         .pmAutoList .autoTbl td { padding: 4px 8px; font-size: 12px; border: 1px solid var(--line); }
@@ -216,6 +216,7 @@
 
         .pmLegend { margin-left: auto; display: inline-flex; gap: 12px; font-size: 12px; }
         .pmLegend .lgAuto { color: #b5731d; }
+        .pmLegend .lgMoved { color: #2f7fb4; }
         .pmLegend .lgManual { color: #36a35b; }
 
         .pmCalHead .monthLabel {
@@ -289,23 +290,24 @@
 
         td.dayCell:hover .addPm { visibility: visible; }
 
+        /* manual PM item -> green */
         .pmItem {
             display: flex;
             align-items: center;
             gap: 4px;
             font-size: 11px;
-            background: #e9f6ff;
-            border: 1px solid #b9def5;
+            background: #e8f7ec;
+            border: 1px solid #a9dcb7;
             border-radius: 4px;
             padding: 2px 4px;
             margin-bottom: 3px;
-            color: #1f6fa0;
+            color: #1f7a3d;
             cursor: grab;
         }
 
         .pmItem:active { cursor: grabbing; }
-        .pmItem:hover { background: #d4eefc; }
-        .pmItem.selected { background: #2f7fb4; color: #fff; border-color: #1f6fa0; }
+        .pmItem:hover { background: #d6f0dd; }
+        .pmItem.selected { background: #2e9e54; color: #fff; border-color: #1f7a3d; }
         .pmItem.dragging { opacity: 0.4; }
         .pmItem .dot { color: #36a35b; font-weight: 700; flex: 0 0 auto; }
         .pmItem .dot.empty { color: #d99a00; }
@@ -320,6 +322,17 @@
         .pmItem.auto.selected { background: #d98e2b; color: #fff; border-color: #b5731d; }
         .pmItem.auto .dot.auto { color: #d98e2b; }
         .pmItem.auto.selected .dot.auto { color: #fff; }
+
+        /* auto item that was manually moved -> light blue */
+        .pmItem.auto.moved {
+            background: #e6f3fc;
+            border: 1px solid #8ec5e8;
+            color: #1f6fa0;
+        }
+        .pmItem.auto.moved:hover { background: #d4eafa; }
+        .pmItem.auto.moved.selected { background: #2f7fb4; color: #fff; border-color: #1f6fa0; }
+        .pmItem.auto.moved .dot.auto { color: #2f7fb4; }
+        .pmItem.auto.moved.selected .dot.auto { color: #fff; }
 
         .pmItem .pmLabel {
             flex: 1 1 auto;
@@ -458,6 +471,7 @@
                         <button type="button" class="miniBtn" onclick="pmGoToday()">今天</button>
                         <span class="pmLegend">
                             <span class="lg lgAuto">&#9650; 自動預估</span>
+                            <span class="lg lgMoved">&#9650; 已移動</span>
                             <span class="lg lgManual">&#9679; 手動</span>
                         </span>
                     </div>
@@ -607,14 +621,14 @@
                     var due = new Date(today.getFullYear(), today.getMonth(), today.getDate() + (it.days || 0));
                     ds = dStr(due.getFullYear(), due.getMonth(), due.getDate());
                 }
-                PM.autoList.push({ eqpid: it.eqpid, group: it.group || '', days: it.days, due: ds, overridden: overridden });
+                PM.autoList.push({ eqpid: it.eqpid, group: it.group || '', days: it.days, diff: it.diff, due: ds, overridden: overridden });
 
                 // 只把落在當月的放進月曆格子
                 if (ds.substring(0, 7) !== ymStr(PM.year, PM.month)) continue;
                 if (!PM.data[ds]) PM.data[ds] = [];
                 PM.data[ds].push({
-                    id: 'auto:' + it.eqpid, auto: true,
-                    eqpid: it.eqpid, group: it.group || '', days: it.days,
+                    id: 'auto:' + it.eqpid, auto: true, overridden: overridden,
+                    eqpid: it.eqpid, group: it.group || '', days: it.days, diff: it.diff,
                     action: '', retest: ''
                 });
             }
@@ -630,17 +644,19 @@
             if (PM.autoError) {
                 html += '<div class="autoErr">自動排程讀取失敗：' + esc(PM.autoError) + '</div>';
             }
-            html += '<div class="autoHd">自動排程清單（' + rows.length + ' 台）</div>';
+            html += '<div class="autoHd"><span>自動排程清單（' + rows.length + ' 台）</span>'
+                  + '<button type="button" class="miniBtn" onclick="pmAutoReschedule()">自動重排</button></div>';
             if (rows.length === 0 && !PM.autoError) {
                 html += '<div class="muted" style="padding:6px;">沒有可預估的機台（可能 SPEC 或 Avg.move 缺值）。</div>';
             } else {
-                html += '<table class="autoTbl"><tr><th>機台</th><th>群組</th><th>剩餘天</th><th>到期日</th></tr>';
+                html += '<table class="autoTbl"><tr><th>機台</th><th>群組</th><th>剩餘片數</th><th>剩餘天</th><th>到期日</th></tr>';
                 for (var i = 0; i < rows.length; i++) {
                     var rw = rows[i];
                     var ym = rw.due.substring(0, 7);
                     html += '<tr>'
                           + '<td>' + esc(rw.eqpid) + '</td>'
                           + '<td>' + esc(rw.group) + '</td>'
+                          + '<td style="text-align:right;">' + (rw.diff != null ? rw.diff : '') + '</td>'
                           + '<td style="text-align:right;">' + (rw.days != null ? rw.days : '') + '</td>'
                           + '<td><a href="#" onclick="pmGotoMonth(\'' + ym + '\'); return false;">' + esc(rw.due) + '</a>'
                           + (rw.overridden ? ' <span class="ovr">(已調整)</span>' : '') + '</td>'
@@ -656,6 +672,14 @@
             PM.year = parseInt(parts[0], 10);
             PM.month = parseInt(parts[1], 10) - 1;
             PM.loadMonth();
+        };
+
+        // 自動重排：清掉所有拖拉覆寫，全部機台回到預估到期日並重新載入
+        window.pmAutoReschedule = async function () {
+            if (!confirm('自動重排會清除所有手動移動過的自動排程（回到預估日期），確定？')) return;
+            PM.autoOverrides = {};
+            await PM.saveAutoOverrides();
+            await PM.loadMonth();
         };
 
         // 儲存 auto 的覆寫日期
@@ -722,8 +746,9 @@
                         var it = items[i];
                         var sel = (PM.editDate === ds && PM.editId === it.id) ? ' selected' : '';
                         if (it.auto) {
-                            // 自動排程項目：可拖拉(改實際日期)、可點擊編輯，樣式區隔
-                            html += '<span class="pmItem auto' + sel + '" draggable="true"'
+                            // 自動排程項目：純預估=橘色，已手動移動過=淺藍色；可拖拉、可點擊編輯
+                            var movedCls = it.overridden ? ' moved' : '';
+                            html += '<span class="pmItem auto' + movedCls + sel + '" draggable="true"'
                                   + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + esc(it.eqpid) + ' (預估 ' + (it.days || 0) + ' 天)"'
                                   + ' ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)">'
                                   + '<span class="dot auto">&#9650;</span>'
@@ -825,6 +850,7 @@
             if (entry.auto) {
                 // 自動排程：把實際日期記成覆寫（存到 AUTOPM override，不寫進手動排程檔）
                 PM.autoOverrides[entry.eqpid] = toDate;
+                entry.overridden = true;   // 改成「已移動」(淺藍)樣式
                 await PM.saveAutoOverrides();
                 PM.render();
             } else if (await PM.persist()) {

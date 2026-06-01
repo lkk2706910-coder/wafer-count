@@ -33,6 +33,9 @@ public class GetAutoPm : IHttpHandler
                         item["eqpid"] = r["DISP_EQPID"] == DBNull.Value ? "" : r["DISP_EQPID"].ToString();
                         item["group"] = r["GRP"] == DBNull.Value ? "" : r["GRP"].ToString();
                         item["days"] = r["MIN_DAYS"] == DBNull.Value ? 0 : Convert.ToInt32(r["MIN_DAYS"]);
+                        item["diff"] = r["MIN_DIFF"] == DBNull.Value
+                            ? (object)null
+                            : (int)Math.Round(Convert.ToDecimal(r["MIN_DIFF"]), MidpointRounding.AwayFromZero);
                         items.Add(item);
                     }
                 }
@@ -50,8 +53,9 @@ public class GetAutoPm : IHttpHandler
     private const string Sql = @"
 SELECT
     d.DISP_EQPID,
-    MIN(d.GRP) AS GRP,
-    MIN(d.DAYS) AS MIN_DAYS
+    d.GRP,
+    d.DAYS AS MIN_DAYS,
+    d.DIFFV AS MIN_DIFF
 FROM
 (
     SELECT
@@ -64,7 +68,22 @@ FROM
                 CASE WHEN FLOOR((sp.SPEC - TRY_CONVERT(decimal(18,4), b.DATA_VAL)) / mv.AVG_MOVE) < 0
                      THEN 0
                      ELSE FLOOR((sp.SPEC - TRY_CONVERT(decimal(18,4), b.DATA_VAL)) / mv.AVG_MOVE) END
-        END AS DAYS
+        END AS DAYS,
+        -- 剩餘片數 = SPEC - 現值（DIFF）
+        CASE WHEN sp.SPEC IS NULL THEN NULL
+             ELSE sp.SPEC - TRY_CONVERT(decimal(18,4), b.DATA_VAL) END AS DIFFV,
+        -- 每台取 DAYS 最小那一列
+        ROW_NUMBER() OVER (
+            PARTITION BY CASE WHEN b.ISMF = 1 THEN b.EQPID + '-MF' ELSE b.EQPID END
+            ORDER BY
+                CASE
+                    WHEN sp.SPEC IS NULL OR mv.AVG_MOVE IS NULL OR mv.AVG_MOVE <= 0 THEN NULL
+                    ELSE
+                        CASE WHEN FLOOR((sp.SPEC - TRY_CONVERT(decimal(18,4), b.DATA_VAL)) / mv.AVG_MOVE) < 0
+                             THEN 0
+                             ELSE FLOOR((sp.SPEC - TRY_CONVERT(decimal(18,4), b.DATA_VAL)) / mv.AVG_MOVE) END
+                END ASC
+        ) AS RN
     FROM
     (
         SELECT
@@ -120,9 +139,8 @@ FROM
           OR (b.ISMF = 1 AND b.EQPID LIKE 'NISACVD-%' AND b.MOM NOT IN ('NISACVD-B06','NISACVD-B07','NISACVD-B08') AND b.METERTYPE = 'BUFFER-PM')
       )
 ) d
-WHERE d.DAYS IS NOT NULL
-GROUP BY d.DISP_EQPID
-ORDER BY MIN(d.DAYS), d.DISP_EQPID";
+WHERE d.RN = 1 AND d.DAYS IS NOT NULL
+ORDER BY d.DAYS, d.DISP_EQPID";
 
     private static void WriteJson(HttpContext ctx, object obj)
     {
