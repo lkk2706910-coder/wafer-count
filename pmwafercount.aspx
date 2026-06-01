@@ -473,7 +473,6 @@
             for (var i = 0; i < tabs.length; i++) {
                 tabs[i].classList.toggle('active', tabs[i].getAttribute('data-view') === name);
             }
-            try { sessionStorage.setItem('wc_active_view', name); } catch (e) {}
             if (name === 'pm' || name === 'work') {
                 if (!PM.loaded) { PM.init(); }
                 else if (name === 'work') { PM.renderWA(); }
@@ -767,11 +766,9 @@
             await PM.persist();
         };
 
-        // ---------- restore active tab on load ----------
+        // ---------- always land on PM schedule ----------
         function boot() {
-            var v = 'wafer';
-            try { v = sessionStorage.getItem('wc_active_view') || 'pm'; } catch (e) {}
-            showView(v);
+            showView('pm');
         }
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', boot);
