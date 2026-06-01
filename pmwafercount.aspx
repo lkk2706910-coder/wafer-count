@@ -380,9 +380,9 @@
     <form id="form1" runat="server">
         <div class="topBar">
             <div class="tabs">
-                <button type="button" class="tab active" data-view="wafer" onclick="showView('wafer')">Wafer Count</button>
-                <button type="button" class="tab" data-view="pm" onclick="showView('pm')">PM 排程</button>
+                <button type="button" class="tab active" data-view="pm" onclick="showView('pm')">PM 排程</button>
                 <button type="button" class="tab" data-view="work" onclick="showView('work')">工作分配</button>
+                <button type="button" class="tab" data-view="wafer" onclick="showView('wafer')">Wafer Count</button>
             </div>
             <div class="updateInfo">
                 <span class="label">Update:</span>
@@ -391,7 +391,7 @@
         </div>
 
         <!-- ===== Wafer Count view ===== -->
-        <div id="waferView" class="view">
+        <div id="waferView" class="view hidden">
             <h2>PM wafer count &mdash; WET_CLEAN (SACVD / NISACVD)</h2>
 
             <div class="toolbar">
@@ -413,7 +413,7 @@
         </div>
 
         <!-- ===== PM Schedule view ===== -->
-        <div id="pmView" class="view hidden">
+        <div id="pmView" class="view">
             <h2>PM 排程月曆</h2>
             <div class="pmLayout">
                 <div class="pmCalWrap">
@@ -770,7 +770,7 @@
         // ---------- restore active tab on load ----------
         function boot() {
             var v = 'wafer';
-            try { v = sessionStorage.getItem('wc_active_view') || 'wafer'; } catch (e) {}
+            try { v = sessionStorage.getItem('wc_active_view') || 'pm'; } catch (e) {}
             showView(v);
         }
         if (document.readyState === 'loading') {
