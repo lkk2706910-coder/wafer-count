@@ -3,6 +3,8 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PM Wafer Count / PM Schedule</title>
     <style>
         :root {
@@ -21,6 +23,8 @@
         /* top bar: tabs left, update time right */
         .topBar {
             display: flex;
+            flex-wrap: wrap;
+            gap: 8px 12px;
             align-items: center;
             justify-content: space-between;
             margin-bottom: 14px;
@@ -193,16 +197,18 @@
         /* ----- PM schedule view ----- */
         .pmLayout {
             display: flex;
+            flex-wrap: wrap;
             gap: 14px;
             align-items: flex-start;
         }
 
-        .pmCalWrap { flex: 1 1 auto; min-width: 0; }
+        .pmCalWrap { flex: 1 1 560px; min-width: 0; overflow-x: auto; }
 
         .pmCalHead {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
-            gap: 12px;
+            gap: 8px 12px;
             margin-bottom: 10px;
         }
 
@@ -245,7 +251,7 @@
         table.calendar {
             table-layout: fixed;
             width: 100%;
-            min-width: 700px;
+            min-width: 600px;
             border-collapse: collapse;
         }
 
@@ -406,7 +412,7 @@
         .pmEditor .danger { background: #fff; border-color: #d99; color: #c0392b; }
 
         /* ----- work assignment view ----- */
-        .waHead { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+        .waHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
         .waHead .monthLabel { font-size: 18px; font-weight: 700; color: #244657; min-width: 150px; text-align: center; }
 
         table.waTable { border-collapse: collapse; width: 100%; min-width: 560px; }
@@ -424,6 +430,13 @@
         }
 
         .hidden { display: none !important; }
+
+        /* 窄螢幕/低解析度：編輯器改放到月曆下方並佔滿寬度，避免並排擠在一起 */
+        @media (max-width: 960px) {
+            body { margin: 12px; }
+            .pmCalWrap { flex-basis: 100%; }
+            .pmEditor { flex: 1 1 100%; position: static; top: auto; }
+        }
     </style>
 </head>
 <body>
