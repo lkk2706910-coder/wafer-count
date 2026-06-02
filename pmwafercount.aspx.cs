@@ -356,16 +356,16 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     // 現值已達/超過 spec（差值 <= 0）標紅
     diffCell.className = 'diffCell' + (diff <= 0 ? ' over' : '');
 
-    // 預估剩餘天數 = (SPEC - 現值) / Avg.move，無條件捨去；Avg.move 無效則留空
+    // 預估剩餘天數 = (SPEC - 現值) / Avg.move，顯示到小數點後一位；Avg.move 無效則留空
     if(daysCell){
       var mv = parseNum(moveCell ? moveCell.textContent : '');
       if(isNaN(mv) || mv <= 0){
         daysCell.textContent = '';
         daysCell.className = 'daysCell';
       }else{
-        var days = Math.floor(diff / mv);
+        var days = diff / mv;
         if(days < 0) days = 0;
-        daysCell.textContent = days;
+        daysCell.textContent = days.toFixed(1);
         // 已達 spec(剩 0 天)標紅
         daysCell.className = 'daysCell' + (days <= 0 ? ' over' : '');
       }
@@ -427,9 +427,9 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     window.filterEntities();
   };
 
-  // 預設：DIFF 欄由小到大排序（等 spec 載入、DIFF 算好後才排）
-  function defaultSortDiffAsc(){
-    var th = document.querySelector('#dataTable th[data-col=\'4\']');
+  // 預設：預估剩餘天數由小到大排序（小的在最上面；空值排最後）
+  function defaultSortDaysAsc(){
+    var th = document.querySelector('#dataTable th[data-col=\'6\']');
     if(!th) return;
     sortState.col = -1; sortState.dir = 1; // 確保 sortBy 視為升冪
     window.sortBy(th);
@@ -439,7 +439,7 @@ ORDER BY g.GRP_ORD, s.EQPID, s.METERTYPE";
     restoreEntities();
     window.filterEntities();
     recalcAll();
-    defaultSortDiffAsc();
+    defaultSortDaysAsc();
   }
   if(document.readyState === 'loading'){
     document.addEventListener('DOMContentLoaded', init);
