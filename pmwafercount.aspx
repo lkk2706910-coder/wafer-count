@@ -411,8 +411,8 @@
         .pmEditor .primary { background: linear-gradient(#5bb6ea, #2f7fb4); color: #fff; }
         .pmEditor .confirmBtn { background: linear-gradient(#5bbf7a, #2e9e54); color: #fff; border-color: #1f7a3d; }
         .pmEditor .danger { background: #fff; border-color: #d99; color: #c0392b; }
-        .pmItem.confirmed { background: #e3f0ff; border-color: #2f7fb4; }
-        .pmItem.confirmed:hover { background: #d4e8fb; }
+        .pmItem.confirmed { background: #e6f3fc; border-color: #8ec5e8; color: #1f6fa0; }
+        .pmItem.confirmed:hover { background: #d4eafa; }
         .pmItem.confirmed .dot { color: #2f7fb4; }
 
         /* ----- work assignment view ----- */
