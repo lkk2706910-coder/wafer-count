@@ -406,10 +406,14 @@
         }
 
         .pmEditor textarea { min-height: 70px; resize: vertical; }
-        .pmEditor .row { display: flex; gap: 8px; margin-top: 12px; }
+        .pmEditor .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
         .pmEditor .row .btn { border-radius: 6px; border: 1px solid #1f6fa0; }
         .pmEditor .primary { background: linear-gradient(#5bb6ea, #2f7fb4); color: #fff; }
+        .pmEditor .confirmBtn { background: linear-gradient(#5bbf7a, #2e9e54); color: #fff; border-color: #1f7a3d; }
         .pmEditor .danger { background: #fff; border-color: #d99; color: #c0392b; }
+        .pmItem.confirmed { background: #e3f0ff; border-color: #2f7fb4; }
+        .pmItem.confirmed:hover { background: #d4e8fb; }
+        .pmItem.confirmed .dot { color: #2f7fb4; }
 
         /* ----- work assignment view ----- */
         .waHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
@@ -512,6 +516,8 @@
                         <textarea id="pmEdRetest" placeholder="輸入回線後要測試/驗證的項目"></textarea>
                         <div class="row">
                             <button type="button" class="btn primary" onclick="pmSaveEntry()">套用</button>
+                            <button type="button" class="btn confirmBtn" id="pmConfirmBtn" onclick="pmConfirmEntry()">確定排程</button>
+                            <button type="button" class="btn confirmBtn hidden" id="pmUnconfirmBtn" onclick="pmUnconfirmEntry()">取消確定</button>
                             <button type="button" class="btn danger" id="pmDelBtn" onclick="pmDeleteEntry()">刪除</button>
                         </div>
                     </div>
@@ -592,15 +598,18 @@
         };
 
         PM.loadMonth = async function () {
-            var ym = ymStr(PM.year, PM.month);
+            // 一次載入「所有月份」的已存排程（含過往），跨月都保留得到
             try {
-                var resp = await fetch('./TF2api/GetPmSchedule.ashx?ym=' + ym + '&ts=' + Date.now(), { cache: 'no-store' });
+                var resp = await fetch('./TF2api/GetAllPmSchedules.ashx?ts=' + Date.now(), { cache: 'no-store' });
                 var js = await resp.json();
                 PM.data = (js && js.ok && js.data) ? js.data : {};
+                PM.loadedMonths = (js && js.ok && js.months) ? js.months.slice() : [];
             } catch (e) {
                 PM.data = {};
+                PM.loadedMonths = [];
             }
-            await PM.loadAuto();
+            await PM.fetchAuto();   // 取得自動排程清單 + 覆寫日期
+            PM.distribute();        // 計算分配並放進月曆
             PM.closeEditor();
             PM.render();
             PM.renderWA();
@@ -628,23 +637,15 @@
         };
 
         // 讀自動排程清單 + 使用者覆寫日期，合併成 auto 項目放進 PM.data（不寫回手動排程檔）
-        PM.loadAuto = async function () {
-            // 先清掉舊的 auto 項目（每次重算）
-            for (var k in PM.data) {
-                if (!PM.data.hasOwnProperty(k)) continue;
-                PM.data[k] = PM.data[k].filter(function (e) { return !e.auto; });
-                if (PM.data[k].length === 0) delete PM.data[k];
-            }
-
-            // 覆寫日期（拖拉後記住的實際日期）
+        // 抓「自動排程清單 + 覆寫日期」（只在完整載入時呼叫，避免覆蓋未存的拖拉覆寫）
+        PM.fetchAuto = async function () {
             try {
                 var ro = await fetch('./TF2api/GetTargetJson.ashx?tool=AUTOPM&mode=OVERRIDE&ts=' + Date.now(), { cache: 'no-store' });
                 var jo = await ro.json();
                 PM.autoOverrides = (jo && jo.ok && jo.data) ? jo.data : {};
             } catch (e) { PM.autoOverrides = {}; }
 
-            // 自動排程：每台預估到期日
-            var list = [];
+            PM.autoRaw = [];
             PM.autoError = '';
             try {
                 var ra = await fetch('./TF2api/GetAutoPm.ashx?ts=' + Date.now(), { cache: 'no-store' });
@@ -654,7 +655,7 @@
                 if (!ra.ok) {
                     PM.autoError = 'HTTP ' + ra.status + (txt ? (' - ' + txt.substring(0, 300)) : '');
                 } else if (ja && ja.ok && ja.items) {
-                    list = ja.items;
+                    PM.autoRaw = ja.items;
                 } else if (ja && !ja.ok) {
                     PM.autoError = ja.error || 'unknown error';
                 } else {
@@ -662,6 +663,18 @@
                 }
             } catch (e) { PM.autoError = String(e); }
             PM.autoLoaded = true;
+        };
+
+        // 依目前 PM.data(已存排程) + 覆寫日期 + 自動清單，重算每筆自動 PM 的日期
+        // (不抓伺服器，可隨時重跑而不丟未存的拖拉覆寫)
+        PM.distribute = function () {
+            // 先清掉舊的 auto 項目（每次重算）
+            for (var k in PM.data) {
+                if (!PM.data.hasOwnProperty(k)) continue;
+                PM.data[k] = PM.data[k].filter(function (e) { return !e.auto; });
+                if (PM.data[k].length === 0) delete PM.data[k];
+            }
+            var list = PM.autoRaw || [];
 
             // ---- 自動分配每筆 PM 的日期 ----
             // 規則：1) 平日每天最多 3 台，且同 entity(群組) 一天最多 1 台
@@ -690,7 +703,10 @@
                 var arr = PM.data[dk];
                 for (var mi = 0; mi < arr.length; mi++) {
                     var me = arr[mi];
-                    if (!me.auto && me.metertype) {
+                    if (me.auto) continue;
+                    // 已存(手動/確定)排程計入該日負載，讓自動項避開
+                    placeAt(dk, me.group || '');
+                    if (me.metertype) {
                         // metertype 可能是合併的「A-PM,B-PM」→ 拆開分別登記，抑制各自的自動項
                         var mts = me.metertype.split(',');
                         for (var mz = 0; mz < mts.length; mz++) manualKeys[autoKey(me.eqpid, mts[mz].trim())] = true;
@@ -819,8 +835,7 @@
             for (var ci = 0; ci < displayItems.length; ci++) {
                 var d = displayItems[ci];
                 PM.autoList.push({ eqpid: d.eqpid, metertype: d.metertype, group: d.group, days: d.days, diff: d.diff, due: d.ds, overridden: d.overridden });
-                // 只把落在當月的放進月曆格子
-                if (d.ds.substring(0, 7) !== ymStr(PM.year, PM.month)) continue;
+                // 放進月曆（所有月份；render 只畫目前檢視月份，切月不需重抓）
                 if (!PM.data[d.ds]) PM.data[d.ds] = [];
                 PM.data[d.ds].push({
                     id: d.id, auto: true, overridden: d.overridden,
@@ -842,7 +857,9 @@
                 html += '<div class="autoErr">自動排程讀取失敗：' + esc(PM.autoError) + '</div>';
             }
             html += '<div class="autoHd"><span>自動排程清單（' + rows.length + ' 台）</span>'
-                  + '<button type="button" class="miniBtn" onclick="pmAutoReschedule()">自動重排</button></div>';
+                  + '<span style="display:inline-flex; gap:8px;">'
+                  + '<button type="button" class="miniBtn" onclick="pmConfirmMonth()">確認本月全部</button>'
+                  + '<button type="button" class="miniBtn" onclick="pmAutoReschedule()">自動重排</button></span></div>';
             if (rows.length === 0 && !PM.autoError) {
                 html += '<div class="muted" style="padding:6px;">沒有可預估的機台（可能 SPEC 或 Avg.move 缺值）。</div>';
             } else {
@@ -869,7 +886,8 @@
             var parts = ym.split('-');
             PM.year = parseInt(parts[0], 10);
             PM.month = parseInt(parts[1], 10) - 1;
-            PM.loadMonth();
+            PM.render();   // 資料已跨月在記憶體，只需切月重畫
+            showView('pm');
         };
 
         // 自動重排：清掉所有拖拉覆寫，全部機台回到預估到期日並重新載入
@@ -890,23 +908,33 @@
         };
 
         PM.persist = async function () {
-            var ym = ymStr(PM.year, PM.month);
-            // 只存手動項目；auto 項目不寫進排程檔（由 GetAutoPm + 覆寫日期動態產生）
-            var manual = {};
+            // 只存非 auto 項目（手動/確定）；auto 項目動態產生不寫檔。
+            // PM.data 跨所有月份 → 依日期的月份分組，每月各寫一個檔。
+            var byMonth = {};
             for (var k in PM.data) {
                 if (!PM.data.hasOwnProperty(k)) continue;
                 var keep = PM.data[k].filter(function (e) { return !e.auto; });
-                if (keep.length) manual[k] = keep;
+                if (!keep.length) continue;
+                var ym = k.substring(0, 7);
+                (byMonth[ym] || (byMonth[ym] = {}))[k] = keep;
             }
-            var form = new FormData();
-            form.append('ym', ym);
-            form.append('json', JSON.stringify(manual));
-            var resp = await fetch('./TF2api/SavePmSchedule.ashx?ts=' + Date.now(), { method: 'POST', body: form });
-            var txt = await resp.text();
-            if (!resp.ok) { alert('儲存失敗：HTTP ' + resp.status + '\n' + txt); return false; }
-            var js;
-            try { js = JSON.parse(txt); } catch (e) { alert('儲存失敗：回應格式錯誤\n' + txt); return false; }
-            if (!js || !js.ok) { alert('儲存失敗：' + (js && js.error ? js.error : 'unknown')); return false; }
+            // 載入過但現在清空的月份也要寫(空檔覆蓋，刪掉已移除的排程)
+            var monthsToSave = {};
+            for (var mm in byMonth) if (byMonth.hasOwnProperty(mm)) monthsToSave[mm] = true;
+            for (var li = 0; li < (PM.loadedMonths || []).length; li++) monthsToSave[PM.loadedMonths[li]] = true;
+
+            for (var ym2 in monthsToSave) {
+                if (!monthsToSave.hasOwnProperty(ym2)) continue;
+                var form = new FormData();
+                form.append('ym', ym2);
+                form.append('json', JSON.stringify(byMonth[ym2] || {}));
+                var resp = await fetch('./TF2api/SavePmSchedule.ashx?ts=' + Date.now(), { method: 'POST', body: form });
+                var txt = await resp.text();
+                if (!resp.ok) { alert('儲存失敗(' + ym2 + ')：HTTP ' + resp.status + '\n' + txt); return false; }
+                try { var js = JSON.parse(txt); if (!js || !js.ok) { alert('儲存失敗(' + ym2 + ')：' + (js && js.error ? js.error : 'unknown')); return false; } }
+                catch (e) { alert('儲存失敗(' + ym2 + ')：回應格式錯誤\n' + txt); return false; }
+            }
+            PM.loadedMonths = Object.keys(byMonth);   // 更新為目前有資料的月份
             return true;
         };
 
@@ -956,8 +984,9 @@
                         } else {
                             var hasAction = (it.action && it.action.trim()) || (it.retest && it.retest.trim());
                             var mMtTxt = it.metertype ? (' · ' + it.metertype) : '';
-                            html += '<span class="pmItem' + sel + '" draggable="true"'
-                                  + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + esc(it.eqpid) + esc(mMtTxt) + '"'
+                            var confCls = it.confirmed ? ' confirmed' : '';
+                            html += '<span class="pmItem' + confCls + sel + '" draggable="true"'
+                                  + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + (it.confirmed ? '已確定排程 ' : '') + esc(it.eqpid) + esc(mMtTxt) + '"'
                                   + ' ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)">'
                                   + '<span class="dot' + (hasAction ? '' : ' empty') + '">&#9679;</span>'
                                   + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '(未命名)') + esc(mMtTxt) + '</span>'
@@ -1000,6 +1029,10 @@
             document.getElementById('pmEdAction').value = entry ? (entry.action || '') : '';
             document.getElementById('pmEdRetest').value = entry ? (entry.retest || '') : '';
             document.getElementById('pmDelBtn').classList.toggle('hidden', !entry);
+            // 已確定 → 顯示「取消確定」；否則顯示「確定排程」
+            var isConfirmed = !!(entry && entry.confirmed);
+            document.getElementById('pmConfirmBtn').classList.toggle('hidden', isConfirmed);
+            document.getElementById('pmUnconfirmBtn').classList.toggle('hidden', !isConfirmed);
             PM.render();
             document.getElementById('pmEdEqp').focus();
         };
@@ -1118,31 +1151,79 @@
             PM.render();
         };
 
-        // 切換月份前若有未儲存變更先提醒(換月會重新載入而丟棄)
-        function pmConfirmLeave() {
-            return !PM.dirty || confirm('有未儲存的變更，切換月份將捨棄這些變更，確定？');
+        // ---------- 確定排程：把自動 PM 鎖定成固定紀錄(不再被每日片數重算) ----------
+        // 把一個項目就地轉成「已確定」的持久化 PM（保留 eqpid / metertype）
+        function confirmEntryObj(entry) {
+            if (entry.auto) {
+                entry.auto = false;
+                if (!entry.id || entry.id.indexOf('auto:') === 0) entry.id = genId();
+            }
+            entry.confirmed = true;
+            delete entry.merged; delete entry.mergedKeys;   // 已是單一持久化紀錄
         }
+        window.pmConfirmEntry = function () {
+            var ds = PM.editDate; if (!ds || !PM.editId) return;
+            var entry = findEntry(ds, PM.editId); if (!entry) return;
+            // 若有改機台/內容也一起套用
+            var eqp = document.getElementById('pmEdEqp').value.trim();
+            if (eqp) entry.eqpid = eqp;
+            entry.action = document.getElementById('pmEdAction').value;
+            entry.retest = document.getElementById('pmEdRetest').value;
+            confirmEntryObj(entry);
+            PM.editId = entry.id;
+            PM.markDirty();
+            PM.render();
+            PM.openEditor(ds, entry);   // 重整編輯器(按鈕切換成「取消確定」)
+        };
+        window.pmUnconfirmEntry = function () {
+            var ds = PM.editDate, id = PM.editId;
+            if (!ds || !id) return;
+            if (!confirm('取消確定後，這筆會回到自動預估排程，確定？')) return;
+            PM.data[ds] = (PM.data[ds] || []).filter(function (x) { return x.id !== id; });
+            if (PM.data[ds].length === 0) delete PM.data[ds];
+            PM.closeEditor();
+            PM.markDirty();
+            PM.distribute();   // 重新分配，讓該機台的自動預估回來(不重抓，保留未存覆寫)
+            PM.render();
+            PM.renderWA();
+        };
+        // 確認「目前檢視月份」全部自動 PM
+        window.pmConfirmMonth = function () {
+            var ym = ymStr(PM.year, PM.month);
+            var cnt = 0;
+            for (var ds in PM.data) {
+                if (!PM.data.hasOwnProperty(ds)) continue;
+                if (ds.substring(0, 7) !== ym) continue;
+                var arr = PM.data[ds];
+                for (var i = 0; i < arr.length; i++) {
+                    if (arr[i].auto) { confirmEntryObj(arr[i]); cnt++; }
+                }
+            }
+            if (cnt === 0) { alert('本月沒有可確認的自動 PM。'); return; }
+            PM.markDirty();
+            PM.render();
+            PM.renderWA();
+        };
+
+        // 切換月份：資料已跨月在記憶體，只需重畫(不重抓、不丟未存變更)
         window.pmPrevMonth = function () {
-            if (!pmConfirmLeave()) return;
             PM.month--; if (PM.month < 0) { PM.month = 11; PM.year--; }
-            PM.loadMonth();
+            PM.render();
         };
         window.pmNextMonth = function () {
-            if (!pmConfirmLeave()) return;
             PM.month++; if (PM.month > 11) { PM.month = 0; PM.year++; }
-            PM.loadMonth();
+            PM.render();
         };
         window.pmGoToday = function () {
-            if (!pmConfirmLeave()) return;
             var now = new Date();
             PM.year = now.getFullYear(); PM.month = now.getMonth();
-            PM.loadMonth();
+            PM.render();
         };
 
         // ---------- work assignment table ----------
         PM.renderWA = function () {
             var label = document.getElementById('waMonthLabel');
-            if (label) label.textContent = PM.year + ' ' + MON[PM.month];
+            if (label) label.textContent = '所有排程';
             var box = document.getElementById('waTable');
             if (!box) return;
 
@@ -1159,7 +1240,7 @@
             });
 
             if (rows.length === 0) {
-                box.innerHTML = '<div class="noData">本月尚無 PM 排程（請到「PM 排程」分頁新增）。</div>';
+                box.innerHTML = '<div class="noData">尚無 PM 排程（請到「PM 排程」分頁新增）。</div>';
                 return;
             }
 
