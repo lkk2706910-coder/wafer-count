@@ -2,7 +2,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Data.SqlClient;
 using System.Web;
 using System.Web.Script.Serialization;
@@ -20,15 +19,14 @@ public class GetFlowIn24 : IHttpHandler
 
         try
         {
-            // 保留 ENTITY 出現順序；每個 ENTITY 下保留 ARRV_PPID 出現順序
-            var entOrder = new List<string>();
-            var entPpidOrder = new Dictionary<string, List<string>>();
-            var entPpidSum = new Dictionary<string, Dictionary<string, decimal>>();
+            // 保留 ENTITY 與 ARRV_PPID 的出現順序
+            List<string> entOrder = new List<string>();
+            Dictionary<string, List<string>> entPpidOrder = new Dictionary<string, List<string>>();
+            Dictionary<string, Dictionary<string, decimal>> entPpidSum = new Dictionary<string, Dictionary<string, decimal>>();
 
             using (SqlConnection conn = new SqlConnection(ConnStr))
             using (SqlCommand cmd = new SqlCommand("EXEC GPTDB_EAS.dbo.UI_AMAS_FlowIn24 'TF', 'ENTITY'", conn))
             {
-                cmd.CommandType = CommandType.Text;
                 conn.Open();
                 using (SqlDataReader r = cmd.ExecuteReader())
                 {
@@ -59,25 +57,33 @@ public class GetFlowIn24 : IHttpHandler
                             entPpidOrder[ent].Add(ppid);
                             entPpidSum[ent][ppid] = 0m;
                         }
-                        entPpidSum[ent][ppid] += qty;
+                        entPpidSum[ent][ppid] = entPpidSum[ent][ppid] + qty;
                     }
                 }
             }
 
-            var entities = new List<object>();
-            foreach (string ent in entOrder)
+            List<object> entities = new List<object>();
+            for (int e = 0; e < entOrder.Count; e++)
             {
+                string ent = entOrder[e];
                 decimal total = 0m;
-                var ppids = new List<object>();
-                foreach (string ppid in entPpidOrder[ent])
+                List<object> ppids = new List<object>();
+                List<string> order = entPpidOrder[ent];
+                for (int p = 0; p < order.Count; p++)
                 {
+                    string ppid = order[p];
                     decimal v = entPpidSum[ent][ppid];
-                    total += v;
-                    ppids.Add(new Dictionary<string, object> { { "ppid", ppid }, { "qty", v } });
+                    total = total + v;
+                    Dictionary<string, object> row = new Dictionary<string, object>();
+                    row["ppid"] = ppid;
+                    row["qty"] = v;
+                    ppids.Add(row);
                 }
-                entities.Add(new Dictionary<string, object> {
-                    { "entity", ent }, { "total", total }, { "ppids", ppids }
-                });
+                Dictionary<string, object> item = new Dictionary<string, object>();
+                item["entity"] = ent;
+                item["total"] = total;
+                item["ppids"] = ppids;
+                entities.Add(item);
             }
 
             WriteJson(context, new { ok = true, entities = entities });
@@ -92,7 +98,9 @@ public class GetFlowIn24 : IHttpHandler
     private static int ColIndex(SqlDataReader r, string name)
     {
         for (int i = 0; i < r.FieldCount; i++)
+        {
             if (string.Equals(r.GetName(i), name, StringComparison.OrdinalIgnoreCase)) return i;
+        }
         return -1;
     }
 
