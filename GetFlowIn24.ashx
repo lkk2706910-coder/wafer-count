@@ -6,11 +6,18 @@ using System.Data.SqlClient;
 using System.Web;
 using System.Web.Script.Serialization;
 
-// 24hr Flow In：執行 EXEC GPTDB_EAS.dbo.UI_AMAS_FlowIn24 'TF','ENTITY'
-// 依 ENTITY(第一層) → ARRV_PPID(第二層) 統計 FL_QTY 總和，並給每個 ENTITY 的總和。
+// 24hr Flow In：對每個 ENTITY 群組各執行一次
+//   EXEC GPTDB_EAS.dbo.UI_AMAS_FlowIn24 'TF', '<ENTITY群組>'
+// 第一層 ENTITY(群組) → 第二層 ARRV_PPID 統計 FL_QTY 總和，並給每個 ENTITY 的總和。
 public class GetFlowIn24 : IHttpHandler
 {
     private const string ConnStr = "Server=UMCESIDB02;Database=GPTPoCDB;User Id=GPTPoCDBUser;Password=DB02.2026;";
+
+    // 與 Wafer Count / PM 排程相同的 ENTITY 群組
+    private static readonly string[] Entities = new string[] {
+        "SACVD_HARP", "SACVD_SA", "SACVD_SMT",
+        "NISACVD_SIN", "NISACVD_4DC", "NISACVD_LTUSG"
+    };
 
     public void ProcessRequest(HttpContext context)
     {
@@ -19,71 +26,66 @@ public class GetFlowIn24 : IHttpHandler
 
         try
         {
-            // 保留 ENTITY 與 ARRV_PPID 的出現順序
-            List<string> entOrder = new List<string>();
-            Dictionary<string, List<string>> entPpidOrder = new Dictionary<string, List<string>>();
-            Dictionary<string, Dictionary<string, decimal>> entPpidSum = new Dictionary<string, Dictionary<string, decimal>>();
+            string site = (context.Request["site"] ?? "TF").Trim();
+            List<object> entities = new List<object>();
 
             using (SqlConnection conn = new SqlConnection(ConnStr))
-            using (SqlCommand cmd = new SqlCommand("EXEC GPTDB_EAS.dbo.UI_AMAS_FlowIn24 'TF', 'ENTITY'", conn))
             {
                 conn.Open();
-                using (SqlDataReader r = cmd.ExecuteReader())
+
+                for (int gi = 0; gi < Entities.Length; gi++)
                 {
-                    int iEnt = ColIndex(r, "ENTITY");
-                    int iPpid = ColIndex(r, "ARRV_PPID");
-                    int iQty = ColIndex(r, "FL_QTY");
-                    if (iEnt < 0 || iPpid < 0 || iQty < 0)
+                    string ent = Entities[gi];
+
+                    // 該群組：ARRV_PPID -> FL_QTY 總和（保留出現順序）
+                    List<string> ppidOrder = new List<string>();
+                    Dictionary<string, decimal> ppidSum = new Dictionary<string, decimal>();
+
+                    using (SqlCommand cmd = new SqlCommand("EXEC GPTDB_EAS.dbo.UI_AMAS_FlowIn24 @site, @entity", conn))
                     {
-                        context.Response.StatusCode = 500;
-                        WriteJson(context, new { ok = false, error = "結果缺少 ENTITY / ARRV_PPID / FL_QTY 欄位" });
-                        return;
+                        cmd.Parameters.AddWithValue("@site", site);
+                        cmd.Parameters.AddWithValue("@entity", ent);
+
+                        using (SqlDataReader r = cmd.ExecuteReader())
+                        {
+                            int iPpid = ColIndex(r, "ARRV_PPID");
+                            int iQty = ColIndex(r, "FL_QTY");
+                            if (iPpid >= 0 && iQty >= 0)
+                            {
+                                while (r.Read())
+                                {
+                                    string ppid = r.IsDBNull(iPpid) ? "" : r.GetValue(iPpid).ToString().Trim();
+                                    decimal qty = r.IsDBNull(iQty) ? 0m : ToDec(r.GetValue(iQty));
+                                    if (!ppidSum.ContainsKey(ppid))
+                                    {
+                                        ppidOrder.Add(ppid);
+                                        ppidSum[ppid] = 0m;
+                                    }
+                                    ppidSum[ppid] = ppidSum[ppid] + qty;
+                                }
+                            }
+                        }
                     }
 
-                    while (r.Read())
+                    decimal total = 0m;
+                    List<object> ppids = new List<object>();
+                    for (int p = 0; p < ppidOrder.Count; p++)
                     {
-                        string ent = r.IsDBNull(iEnt) ? "" : r.GetValue(iEnt).ToString().Trim();
-                        string ppid = r.IsDBNull(iPpid) ? "" : r.GetValue(iPpid).ToString().Trim();
-                        decimal qty = r.IsDBNull(iQty) ? 0m : ToDec(r.GetValue(iQty));
-
-                        if (!entPpidSum.ContainsKey(ent))
-                        {
-                            entOrder.Add(ent);
-                            entPpidOrder[ent] = new List<string>();
-                            entPpidSum[ent] = new Dictionary<string, decimal>();
-                        }
-                        if (!entPpidSum[ent].ContainsKey(ppid))
-                        {
-                            entPpidOrder[ent].Add(ppid);
-                            entPpidSum[ent][ppid] = 0m;
-                        }
-                        entPpidSum[ent][ppid] = entPpidSum[ent][ppid] + qty;
+                        string ppid = ppidOrder[p];
+                        decimal v = ppidSum[ppid];
+                        total = total + v;
+                        Dictionary<string, object> row = new Dictionary<string, object>();
+                        row["ppid"] = ppid;
+                        row["qty"] = v;
+                        ppids.Add(row);
                     }
-                }
-            }
 
-            List<object> entities = new List<object>();
-            for (int e = 0; e < entOrder.Count; e++)
-            {
-                string ent = entOrder[e];
-                decimal total = 0m;
-                List<object> ppids = new List<object>();
-                List<string> order = entPpidOrder[ent];
-                for (int p = 0; p < order.Count; p++)
-                {
-                    string ppid = order[p];
-                    decimal v = entPpidSum[ent][ppid];
-                    total = total + v;
-                    Dictionary<string, object> row = new Dictionary<string, object>();
-                    row["ppid"] = ppid;
-                    row["qty"] = v;
-                    ppids.Add(row);
+                    Dictionary<string, object> item = new Dictionary<string, object>();
+                    item["entity"] = ent;
+                    item["total"] = total;
+                    item["ppids"] = ppids;
+                    entities.Add(item);
                 }
-                Dictionary<string, object> item = new Dictionary<string, object>();
-                item["entity"] = ent;
-                item["total"] = total;
-                item["ppids"] = ppids;
-                entities.Add(item);
             }
 
             WriteJson(context, new { ok = true, entities = entities });
