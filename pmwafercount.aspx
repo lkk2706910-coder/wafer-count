@@ -182,6 +182,7 @@
 
         tr:nth-child(even) td { background: #fafcff; }
         .noData { padding: 14px; color: #888; }
+        .autoErr { color: #c0392b; background: #fdecea; border: 1px solid #f5c6c0; border-radius: 6px; padding: 8px 10px; margin: 8px 0; font-size: 12px; white-space: pre-wrap; }
 
         #dataTable .moveCell { text-align: right; font-variant-numeric: tabular-nums; color: #355160; }
         #dataTable .daysCell { text-align: right; font-variant-numeric: tabular-nums; }
@@ -433,6 +434,18 @@
             border-radius: 6px; padding: 5px 8px; font-size: 13px; font-family: inherit;
         }
 
+        /* ----- 24hr Flow In table ----- */
+        table.flowTable { border-collapse: collapse; width: 100%; min-width: 480px; }
+        table.flowTable th {
+            background: linear-gradient(#6bc0ef, #3b8ec3);
+            color: #fff; text-align: left; padding: 8px 10px; font-size: 13px; position: static;
+        }
+        table.flowTable td { border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; vertical-align: top; }
+        table.flowTable .flEntity { font-weight: 700; color: #244657; white-space: nowrap; background: #f5f9fc; vertical-align: middle; }
+        table.flowTable .num { text-align: right; font-variant-numeric: tabular-nums; }
+        table.flowTable tr.flSub td { background: #eef4f9; font-weight: 700; color: #1f6fa0; }
+        table.flowTable tr.flGrand td { background: #e6f3fc; font-weight: 700; color: #1f6fa0; }
+
         .hidden { display: none !important; }
 
         /* 窄螢幕/低解析度：編輯器改放到月曆下方並佔滿寬度，避免並排擠在一起 */
@@ -450,6 +463,7 @@
                 <button type="button" class="tab active" data-view="pm" onclick="showView('pm')">PM 排程</button>
                 <button type="button" class="tab" data-view="work" onclick="showView('work')">工作分配</button>
                 <button type="button" class="tab" data-view="wafer" onclick="showView('wafer')">Wafer Count</button>
+                <button type="button" class="tab" data-view="flow" onclick="showView('flow')">24hr Flow In</button>
             </div>
             <div class="updateInfo">
                 <span class="label">Update:</span>
@@ -540,6 +554,17 @@
                 <div id="waTable"></div>
             </div>
         </div>
+        <!-- ===== 24hr Flow In view ===== -->
+        <div id="flowView" class="view hidden">
+            <h2>24hr Flow In</h2>
+            <div class="waHead">
+                <span class="monthLabel" style="min-width:auto;">近 24 小時流入（依 ENTITY / ARRV_PPID 統計 FL_QTY）</span>
+                <button type="button" class="miniBtn" onclick="pmLoadFlow()">重新整理</button>
+            </div>
+            <div class="tableWrap">
+                <div id="flowTable"></div>
+            </div>
+        </div>
     </form>
 
     <script type="text/javascript">
@@ -555,7 +580,7 @@
                 PM.loadMonth();   // 捨棄：重新載入回復到上次儲存狀態
             }
             activeView = name;
-            var views = { wafer: 'waferView', pm: 'pmView', work: 'workView' };
+            var views = { wafer: 'waferView', pm: 'pmView', work: 'workView', flow: 'flowView' };
             for (var k in views) {
                 var el = document.getElementById(views[k]);
                 if (el) el.classList.toggle('hidden', k !== name);
@@ -567,6 +592,8 @@
             if (name === 'pm' || name === 'work') {
                 if (!PM.loaded) { PM.init(); }
                 else if (name === 'work') { PM.renderWA(); }
+            } else if (name === 'flow') {
+                pmLoadFlow();
             }
         };
 
@@ -1271,6 +1298,49 @@
             if (!e) return;
             e.person = value;
             PM.markDirty();
+        };
+
+        // ---------- 24hr Flow In ----------
+        // 來源：EXEC GPTDB_EAS.dbo.UI_AMAS_FlowIn24 'TF','ENTITY'
+        // 第一層 ENTITY、第二層 ARRV_PPID，統計各 ARRV_PPID 的 FL_QTY 總和 + 整個 ENTITY 總和
+        window.pmLoadFlow = async function () {
+            var box = document.getElementById('flowTable');
+            if (!box) return;
+            box.innerHTML = '<div class="noData">載入中…</div>';
+            var js = null;
+            try {
+                var resp = await fetch('./TF2api/GetFlowIn24.ashx?ts=' + Date.now(), { cache: 'no-store' });
+                var txt = await resp.text();
+                try { js = JSON.parse(txt); } catch (e) {}
+                if (!resp.ok || !js) { box.innerHTML = '<div class="autoErr">讀取失敗：HTTP ' + resp.status + (txt ? (' - ' + esc(txt.substring(0, 300))) : '') + '</div>'; return; }
+            } catch (e) { box.innerHTML = '<div class="autoErr">讀取失敗：' + esc(String(e)) + '</div>'; return; }
+            if (!js.ok) { box.innerHTML = '<div class="autoErr">讀取失敗：' + esc(js.error || 'unknown') + '</div>'; return; }
+
+            var ents = js.entities || [];
+            if (ents.length === 0) { box.innerHTML = '<div class="noData">近 24 小時無流入資料。</div>'; return; }
+
+            function fmt(n) { return (Math.round((+n) * 100) / 100).toLocaleString(); }
+            var grand = 0;
+            var html = '<table class="flowTable"><tr><th>ENTITY</th><th>ARRV_PPID</th><th class="num">FL_QTY 總和</th></tr>';
+            for (var i = 0; i < ents.length; i++) {
+                var en = ents[i];
+                var ppids = en.ppids || [];
+                grand += (+en.total || 0);
+                var span = ppids.length + 1;   // +1：小計列
+                if (ppids.length === 0) {
+                    html += '<tr><td class="flEntity">' + esc(en.entity) + '</td><td class="muted">(無)</td><td class="num">0</td></tr>';
+                    continue;
+                }
+                for (var j = 0; j < ppids.length; j++) {
+                    html += '<tr>';
+                    if (j === 0) html += '<td class="flEntity" rowspan="' + span + '">' + esc(en.entity) + '</td>';
+                    html += '<td>' + esc(ppids[j].ppid || '') + '</td><td class="num">' + fmt(ppids[j].qty) + '</td></tr>';
+                }
+                html += '<tr class="flSub"><td>小計</td><td class="num">' + fmt(en.total) + '</td></tr>';
+            }
+            html += '<tr class="flGrand"><td>總計</td><td></td><td class="num">' + fmt(grand) + '</td></tr>';
+            html += '</table>';
+            box.innerHTML = html;
         };
 
         // 有未儲存變更時，關閉/重整頁面前提醒
