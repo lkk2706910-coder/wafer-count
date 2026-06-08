@@ -13,10 +13,10 @@ public class GetFlowIn24 : IHttpHandler
 {
     private const string ConnStr = "Server=UMCESIDB02;Database=GPTPoCDB;User Id=GPTPoCDBUser;Password=DB02.2026;";
 
-    // 與 Wafer Count / PM 排程相同的 ENTITY 群組
+    // Flow In 用的 ENTITY 群組；NISACVD 改用 proc 認得的名稱(NISA_*)
     private static readonly string[] Entities = new string[] {
         "SACVD_HARP", "SACVD_SA", "SACVD_SMT",
-        "NISACVD_SIN", "NISACVD_4DC", "NISACVD_LTUSG"
+        "NISA_SIN", "NISA_USG", "NISA_SIN4D4C"
     };
 
     public void ProcessRequest(HttpContext context)
