@@ -422,6 +422,8 @@
 
         /* ----- work assignment view ----- */
         .waHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+        .waSearch { padding: 6px 10px; font-size: 13px; border: 1px solid var(--line); border-radius: 6px; min-width: 200px; }
+        table.waTable .waStatus { white-space: nowrap; }
         .waHead .monthLabel { font-size: 18px; font-weight: 700; color: #244657; min-width: 150px; text-align: center; }
 
         table.waTable { border-collapse: collapse; width: 100%; min-width: 560px; }
@@ -546,10 +548,8 @@
         <div id="workView" class="view hidden">
             <h2>工作分配</h2>
             <div class="waHead">
-                <button type="button" class="navBtn" onclick="pmPrevMonth()">&#9664;</button>
-                <div class="monthLabel" id="waMonthLabel"></div>
-                <button type="button" class="navBtn" onclick="pmNextMonth()">&#9654;</button>
-                <button type="button" class="miniBtn" onclick="pmGoToday()">今天</button>
+                <div class="monthLabel" id="waMonthLabel" style="min-width:auto;"></div>
+                <input type="text" id="waSearch" class="waSearch" placeholder="查詢機台 EQPID…" oninput="PM.renderWA()" />
                 <button type="button" class="miniBtn pmSaveBtn" onclick="pmSaveAll()" disabled>儲存變更</button>
                 <button type="button" class="miniBtn pmRestoreBtn" onclick="pmRestore()" disabled>回復</button>
                 <span class="pmDirtyTag hidden">● 未儲存</span>
@@ -672,19 +672,28 @@
             var changed = false;
             for (var ds in PM.data) {
                 if (!PM.data.hasOwnProperty(ds)) continue;
-                if (ds > todayStr) continue;     // 只凍結今天(含)以前
+                if (ds > todayStr) continue;     // 只處理今天(含)以前
                 var arr = PM.data[ds];
                 for (var i = 0; i < arr.length; i++) {
-                    if (arr[i].auto) {
-                        arr[i].auto = false;
-                        arr[i].frozen = true;
-                        if (!arr[i].id || ('' + arr[i].id).indexOf('auto:') === 0) arr[i].id = genId();
-                        delete arr[i].merged; delete arr[i].mergedKeys;
+                    var en = arr[i];
+                    // (1) 凍結：自動排程到當天就固定成歷史紀錄
+                    if (en.auto) {
+                        en.auto = false;
+                        en.frozen = true;
+                        if (!en.id || ('' + en.id).indexOf('auto:') === 0) en.id = genId();
+                        delete en.merged; delete en.mergedKeys;
+                        changed = true;
+                    }
+                    // (2) 完成打卡：偵測到 wafer count 歸零(已PM) → 永久標記 done + 完成日，
+                    //     之後不因數值回升而消失，可供查詢「何時 PM、內容為何」
+                    if (!en.done && isPmDone(en.eqpid, en.metertype)) {
+                        en.done = true;
+                        en.doneDate = todayStr;
                         changed = true;
                     }
                 }
             }
-            if (changed) { await PM.persist(); }   // 靜默存檔，固定過去/今天的排程
+            if (changed) { await PM.persist(); }   // 靜默存檔，固定歷史與完成紀錄
         };
 
         // ---------- 變更暫存：所有編輯先進記憶體，按「儲存變更」才寫入 ----------
@@ -1057,7 +1066,7 @@
                     for (var i = 0; i < items.length; i++) {
                         var it = items[i];
                         var sel = (PM.editDate === ds && PM.editId === it.id) ? ' selected' : '';
-                        var doneTag = ((ds <= todayStr) && isPmDone(it.eqpid, it.metertype)) ? '<span class="pmDone">已PM</span>' : '';
+                        var doneTag = (it.done || ((ds <= todayStr) && isPmDone(it.eqpid, it.metertype))) ? '<span class="pmDone" title="' + (it.doneDate ? ('完成日 ' + esc(it.doneDate)) : '已PM') + '">已PM</span>' : '';
                         if (it.auto) {
                             // 自動排程項目：純預估=橘色，已手動移動過=淺藍色；可拖拉、可點擊編輯
                             var movedCls = it.overridden ? ' moved' : '';
@@ -1318,11 +1327,18 @@
             var tw = new Date();
             var todayStr2 = dStr(tw.getFullYear(), tw.getMonth(), tw.getDate());
 
+            var searchEl = document.getElementById('waSearch');
+            var q = searchEl ? (searchEl.value || '').trim().toUpperCase() : '';
+
             var rows = [];
             for (var ds in PM.data) {
                 if (!PM.data.hasOwnProperty(ds)) continue;
                 var arr = PM.data[ds] || [];
-                for (var i = 0; i < arr.length; i++) { rows.push({ ds: ds, e: arr[i] }); }
+                for (var i = 0; i < arr.length; i++) {
+                    var e0 = arr[i];
+                    if (q && ('' + (e0.eqpid || '')).toUpperCase().indexOf(q) < 0) continue;  // 依機台查詢
+                    rows.push({ ds: ds, e: e0 });
+                }
             }
             rows.sort(function (a, b) {
                 if (a.ds !== b.ds) return a.ds < b.ds ? -1 : 1;
@@ -1331,16 +1347,21 @@
             });
 
             if (rows.length === 0) {
-                box.innerHTML = '<div class="noData">尚無 PM 排程（請到「PM 排程」分頁新增）。</div>';
+                box.innerHTML = '<div class="noData">' + (q ? ('查無機台「' + esc(q) + '」的 PM 紀錄。') : '尚無 PM 排程（請到「PM 排程」分頁新增）。') + '</div>';
                 return;
             }
 
-            var html = '<table class="waTable"><tr><th>日期</th><th>機台</th><th>PM 內容</th><th>人員</th></tr>';
+            var html = '<table class="waTable"><tr><th>日期</th><th>機台</th><th>PM 內容</th><th>人員</th><th>完成狀態</th></tr>';
             for (var r = 0; r < rows.length; r++) {
                 var ds2 = rows[r].ds, e = rows[r].e;
                 var content = (e.action && e.action.trim()) ? esc(e.action) : '<span class="muted">(未填)</span>';
                 var mtTxt = e.metertype ? (' · ' + esc(e.metertype)) : '';
-                var waDone = (todayStr2 && ds2 <= todayStr2 && isPmDone(e.eqpid, e.metertype)) ? ' <span class="pmDone">已PM</span>' : '';
+                // 完成狀態：永久 done 旗標(含完成日)；其次即時偵測；過去未完成標示
+                var statusHtml;
+                if (e.done) statusHtml = '<span class="pmDone">已PM</span>' + (e.doneDate ? (' ' + esc(e.doneDate)) : '');
+                else if (ds2 <= todayStr2 && isPmDone(e.eqpid, e.metertype)) statusHtml = '<span class="pmDone">已PM</span>';
+                else if (ds2 < todayStr2) statusHtml = '<span class="muted">未完成</span>';
+                else statusHtml = '<span class="muted">排定</span>';
                 html += '<tr>';
                 // 同一天的多台機台：日期只在該天第一列顯示，並用 rowspan 合併
                 if (r === 0 || rows[r - 1].ds !== ds2) {
@@ -1348,10 +1369,11 @@
                     while (r + span < rows.length && rows[r + span].ds === ds2) span++;
                     html += '<td class="waDate"' + (span > 1 ? ' rowspan="' + span + '"' : '') + '>' + esc(ds2) + '</td>';
                 }
-                html += '<td>' + esc(e.eqpid || '') + mtTxt + waDone + '</td>'
+                html += '<td>' + esc(e.eqpid || '') + mtTxt + '</td>'
                       + '<td class="waContent">' + content + '</td>'
                       + '<td><input type="text" class="waPerson" value="' + esc(e.person || '') + '"'
                       + ' placeholder="輸入人員" onchange="pmSetPerson(&#39;' + ds2 + '&#39;,&#39;' + esc(e.id) + '&#39;, this.value)" /></td>'
+                      + '<td class="waStatus">' + statusHtml + '</td>'
                       + '</tr>';
             }
             html += '</table>';
