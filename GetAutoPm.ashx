@@ -33,6 +33,8 @@ public class GetAutoPm : IHttpHandler
                         item["eqpid"] = r["DISP_EQPID"] == DBNull.Value ? "" : r["DISP_EQPID"].ToString();
                         item["metertype"] = r["METERTYPE"] == DBNull.Value ? "" : r["METERTYPE"].ToString();
                         item["group"] = r["GRP"] == DBNull.Value ? "" : r["GRP"].ToString();
+                        item["dataVal"] = r["DATA_VAL"] == DBNull.Value ? (object)null : Convert.ToDouble(r["DATA_VAL"]);
+                        item["spec"] = r["SPEC"] == DBNull.Value ? (object)null : Convert.ToDouble(r["SPEC"]);
                         item["days"] = r["MIN_DAYS"] == DBNull.Value ? 0 : Convert.ToInt32(r["MIN_DAYS"]);
                         item["diff"] = r["MIN_DIFF"] == DBNull.Value
                             ? (object)null
@@ -57,6 +59,7 @@ SELECT
     d.METERTYPE,
     d.GRP,
     d.DATA_VAL,
+    d.SPEC,
     d.DAYS AS MIN_DAYS,
     d.DIFFV AS MIN_DIFF
 FROM
@@ -73,6 +76,8 @@ FROM
         END AS METERTYPE,
         CASE WHEN b.ISMF = 1 THEN b.EQPID + '-MF' ELSE b.EQPID END AS DISP_EQPID,
         b.GRP,
+        TRY_CONVERT(decimal(18,4), b.DATA_VAL) AS DATA_VAL,
+        sp.SPEC AS SPEC,
         CASE
             WHEN sp.SPEC IS NULL OR mv.AVG_MOVE IS NULL OR mv.AVG_MOVE <= 0 THEN NULL
             ELSE

@@ -415,6 +415,10 @@
         .pmItem.confirmed { background: #e6f3fc; border-color: #8ec5e8; color: #1f6fa0; }
         .pmItem.confirmed:hover { background: #d4eafa; }
         .pmItem.confirmed .dot { color: #2f7fb4; }
+        .pmItem.frozen { background: #eef1f4; border-color: #c4ccd4; color: #51606b; }
+        .pmItem.frozen:hover { background: #e4e8ec; }
+        .pmItem.frozen .dot { color: #7a8893; }
+        .pmDone { margin-left: 4px; flex: 0 0 auto; font-size: 10px; font-weight: 700; color: #fff; background: #36a35b; border-radius: 3px; padding: 0 4px; }
 
         /* ----- work assignment view ----- */
         .waHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
@@ -610,6 +614,22 @@
         function genId() { return 'pm' + Date.now() + Math.floor(Math.random() * 1000); }
         // 自動排程覆寫鍵：同一台不同量測項(A-PM/B-PM…)各自獨立
         function autoKey(eqpid, metertype) { return (eqpid || '') + '|' + (metertype || ''); }
+
+        // 已PM 判定：PM 後 wafer count 會歸 0 重數，但讀到時不一定剛好 0(更新時間差)，
+        // 改以「現值掉到遠低於 SPEC(≤ SPEC×RESET_RATIO)」判斷剛被重置過 = 已 PM。
+        var RESET_RATIO = 0.3;
+        function isPmDone(eqpid, metertype) {
+            if (!PM.metVal) return false;
+            var parts = (metertype || '').split(',');
+            var ok = false;
+            for (var i = 0; i < parts.length; i++) {
+                var m = PM.metVal[autoKey(eqpid, parts[i].trim())];
+                if (!m || m.val == null || m.spec == null || !(m.spec > 0)) return false; // 無資料→無法判定
+                if (!(m.val <= m.spec * RESET_RATIO)) return false;                        // 有一個沒歸零→未PM
+                ok = true;
+            }
+            return ok;
+        }
         var WD = ['日', '一', '二', '三', '四', '五', '六'];
         var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -637,10 +657,34 @@
             }
             await PM.fetchAuto();   // 取得自動排程清單 + 覆寫日期
             PM.distribute();        // 計算分配並放進月曆
+            await PM.archivePast(); // 把今天(含)以前的自動排程凍結成歷史紀錄並存檔(不消失)
             PM.closeEditor();
             PM.render();
             PM.renderWA();
             PM.setDirty(false);   // 載入即為已儲存狀態
+        };
+
+        // 把今天(含)以前的「自動」排程凍結成持久化歷史紀錄(過去 PM 不消失)；
+        // 自動項目原本只存在於今天起算的未來，到了當天就固定下來、靜默存檔。
+        PM.archivePast = async function () {
+            var t = new Date();
+            var todayStr = dStr(t.getFullYear(), t.getMonth(), t.getDate());
+            var changed = false;
+            for (var ds in PM.data) {
+                if (!PM.data.hasOwnProperty(ds)) continue;
+                if (ds > todayStr) continue;     // 只凍結今天(含)以前
+                var arr = PM.data[ds];
+                for (var i = 0; i < arr.length; i++) {
+                    if (arr[i].auto) {
+                        arr[i].auto = false;
+                        arr[i].frozen = true;
+                        if (!arr[i].id || ('' + arr[i].id).indexOf('auto:') === 0) arr[i].id = genId();
+                        delete arr[i].merged; delete arr[i].mergedKeys;
+                        changed = true;
+                    }
+                }
+            }
+            if (changed) { await PM.persist(); }   // 靜默存檔，固定過去/今天的排程
         };
 
         // ---------- 變更暫存：所有編輯先進記憶體，按「儲存變更」才寫入 ----------
@@ -709,6 +753,14 @@
             //       3) 只往前挪(不晚於到期日、不早於今天)；使用者拖過的(overridden)固定不動
             var today = new Date();
             var todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            var todayStr = dStr(today.getFullYear(), today.getMonth(), today.getDate());
+
+            // 目前 wafer count 對照(供「已PM」判定)：autoKey -> { val, spec }
+            PM.metVal = {};
+            for (var mvI = 0; mvI < list.length; mvI++) {
+                var mvit = list[mvI];
+                PM.metVal[autoKey(mvit.eqpid, mvit.metertype || '')] = { val: mvit.dataVal, spec: mvit.spec };
+            }
 
             // 每日負載：{ 'YYYY-MM-DD': { n: 台數, ents: {entity:true} } }
             var dayLoad = {};
@@ -722,8 +774,8 @@
                 var ld = loadOf(ds); ld.n++; if (ent) ld.ents[ent] = true;
             }
 
-            // 收集已存在的「手動 PM」鍵(eqpid|metertype)：
-            // 已被編輯成手動的自動項目，不要再從 GetAutoPm 重複產生(否則重整會多一筆)
+            // 收集已存在的「手動/確定 PM」鍵(eqpid|metertype)：抑制自動重複產生。
+            // 只有「今天(含)以後」的紀錄才壓抑；過去的當歷史保留，不擋未來重新排程。
             var manualKeys = {};
             for (var dk in PM.data) {
                 if (!PM.data.hasOwnProperty(dk)) continue;
@@ -733,7 +785,7 @@
                     if (me.auto) continue;
                     // 已存(手動/確定)排程計入該日負載，讓自動項避開
                     placeAt(dk, me.group || '');
-                    if (me.metertype) {
+                    if (me.metertype && dk >= todayStr) {
                         // metertype 可能是合併的「A-PM,B-PM」→ 拆開分別登記，抑制各自的自動項
                         var mts = me.metertype.split(',');
                         for (var mz = 0; mz < mts.length; mz++) manualKeys[autoKey(me.eqpid, mts[mz].trim())] = true;
@@ -1005,6 +1057,7 @@
                     for (var i = 0; i < items.length; i++) {
                         var it = items[i];
                         var sel = (PM.editDate === ds && PM.editId === it.id) ? ' selected' : '';
+                        var doneTag = ((ds <= todayStr) && isPmDone(it.eqpid, it.metertype)) ? '<span class="pmDone">已PM</span>' : '';
                         if (it.auto) {
                             // 自動排程項目：純預估=橘色，已手動移動過=淺藍色；可拖拉、可點擊編輯
                             var movedCls = it.overridden ? ' moved' : '';
@@ -1014,16 +1067,18 @@
                                   + ' ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)">'
                                   + '<span class="dot auto">&#9650;</span>'
                                   + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '') + esc(mtTxt) + '</span>'
+                                  + doneTag
                                   + '</span>';
                         } else {
                             var hasAction = (it.action && it.action.trim()) || (it.retest && it.retest.trim());
                             var mMtTxt = it.metertype ? (' · ' + it.metertype) : '';
-                            var confCls = it.confirmed ? ' confirmed' : '';
+                            var confCls = (it.confirmed ? ' confirmed' : '') + (it.frozen ? ' frozen' : '');
                             html += '<span class="pmItem' + confCls + sel + '" draggable="true"'
-                                  + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + (it.confirmed ? '已確定排程 ' : '') + esc(it.eqpid) + esc(mMtTxt) + '"'
+                                  + ' data-date="' + ds + '" data-id="' + esc(it.id) + '" title="' + (it.confirmed ? '已確定排程 ' : (it.frozen ? '已排程(歷史) ' : '')) + esc(it.eqpid) + esc(mMtTxt) + '"'
                                   + ' ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)">'
                                   + '<span class="dot' + (hasAction ? '' : ' empty') + '">&#9679;</span>'
                                   + '<span class="pmLabel" onclick="pmEdit(\'' + ds + '\',\'' + it.id + '\')">' + esc(it.eqpid || '(未命名)') + esc(mMtTxt) + '</span>'
+                                  + doneTag
                                   + '<span class="pmActions">'
                                   + '<button type="button" class="iconBtn" title="編輯" onclick="event.stopPropagation(); pmEdit(\'' + ds + '\',\'' + it.id + '\')">&#9998;</button>'
                                   + '<button type="button" class="iconBtn" title="刪除" onclick="event.stopPropagation(); pmQuickDelete(\'' + ds + '\',\'' + it.id + '\')">&#10005;</button>'
@@ -1260,6 +1315,8 @@
             if (label) label.textContent = '所有排程';
             var box = document.getElementById('waTable');
             if (!box) return;
+            var tw = new Date();
+            var todayStr2 = dStr(tw.getFullYear(), tw.getMonth(), tw.getDate());
 
             var rows = [];
             for (var ds in PM.data) {
@@ -1283,6 +1340,7 @@
                 var ds2 = rows[r].ds, e = rows[r].e;
                 var content = (e.action && e.action.trim()) ? esc(e.action) : '<span class="muted">(未填)</span>';
                 var mtTxt = e.metertype ? (' · ' + esc(e.metertype)) : '';
+                var waDone = (todayStr2 && ds2 <= todayStr2 && isPmDone(e.eqpid, e.metertype)) ? ' <span class="pmDone">已PM</span>' : '';
                 html += '<tr>';
                 // 同一天的多台機台：日期只在該天第一列顯示，並用 rowspan 合併
                 if (r === 0 || rows[r - 1].ds !== ds2) {
@@ -1290,7 +1348,7 @@
                     while (r + span < rows.length && rows[r + span].ds === ds2) span++;
                     html += '<td class="waDate"' + (span > 1 ? ' rowspan="' + span + '"' : '') + '>' + esc(ds2) + '</td>';
                 }
-                html += '<td>' + esc(e.eqpid || '') + mtTxt + '</td>'
+                html += '<td>' + esc(e.eqpid || '') + mtTxt + waDone + '</td>'
                       + '<td class="waContent">' + content + '</td>'
                       + '<td><input type="text" class="waPerson" value="' + esc(e.person || '') + '"'
                       + ' placeholder="輸入人員" onchange="pmSetPerson(&#39;' + ds2 + '&#39;,&#39;' + esc(e.id) + '&#39;, this.value)" /></td>'
