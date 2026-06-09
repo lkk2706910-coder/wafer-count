@@ -781,12 +781,16 @@
                 var fit = freeItems[k2];
                 var cand = backFromDue(fit._due);   // [到期日, …, 今天]
                 var picked = null;
-                // 第一輪：平日，總數 < 3 且同 entity 當天未占用
-                for (var ci = 0; ci < cand.length && !picked; ci++) {
+                // 第一輪：平日，挑「當天台數最少」且同 entity 當天未占用的那天(平均分配)；
+                // 平手取較靠近到期日者(cand 是 到期日→今天 順序，先遇到最小值即最晚)
+                var bestN = 999;
+                for (var ci = 0; ci < cand.length; ci++) {
                     var ds2 = cand[ci];
                     if (isWeekendDs(ds2)) continue;
                     var ld = loadOf(ds2);
-                    if (ld.n < 3 && !(fit._ent && ld.ents[fit._ent])) picked = ds2;
+                    if (ld.n >= 3) continue;
+                    if (fit._ent && ld.ents[fit._ent]) continue;
+                    if (ld.n < bestN) { bestN = ld.n; picked = ds2; }
                 }
                 // 第二輪：不得已才排六日，當天最多 1 台
                 for (var cj = 0; cj < cand.length && !picked; cj++) {
