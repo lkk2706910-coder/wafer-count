@@ -769,12 +769,15 @@
                 if ((a.days || 0) !== (b.days || 0)) return (a.days || 0) - (b.days || 0);
                 return a._key < b._key ? -1 : (a._key > b._key ? 1 : 0);
             });
-            // 由到期日往前掃到今天的日期字串(含兩端)
+            // 由到期日往前掃的候選日：最多比到期日提前 MAX_EARLY 天，且不早於今天
+            var MAX_EARLY = 5;
             function backFromDue(dueDs) {
                 var p = dueDs.split('-');
                 var d = new Date(+p[0], +p[1] - 1, +p[2]);
+                var limit = new Date(d.getFullYear(), d.getMonth(), d.getDate() - MAX_EARLY);
+                if (limit < todayMid) limit = todayMid;   // 不早於今天
                 var arr = [];
-                while (d >= todayMid) { arr.push(dStr(d.getFullYear(), d.getMonth(), d.getDate())); d.setDate(d.getDate() - 1); }
+                while (d >= limit) { arr.push(dStr(d.getFullYear(), d.getMonth(), d.getDate())); d.setDate(d.getDate() - 1); }
                 return arr;
             }
             for (var k2 = 0; k2 < freeItems.length; k2++) {
@@ -803,7 +806,7 @@
                 placeAt(picked, fit._ent);
             }
 
-            // ---- 同機台 A-PM / B-PM 若排定日相差 7 天內 → 合併到較早那天 ----
+            // ---- 同機台 A-PM / B-PM 若排定日相差 5 天內 → 合併到較早那天 ----
             // (僅針對未被使用者拖過的自動項目；以最早日期為準)
             function dsDiffDays(a, b) {
                 var pa = a.split('-'), pb = b.split('-');
@@ -818,7 +821,7 @@
             for (var eq in byEqp) {
                 if (!byEqp.hasOwnProperty(eq)) continue;
                 var pa = byEqp[eq]['A-PM'], pb = byEqp[eq]['B-PM'];
-                if (pa && pb && Math.abs(dsDiffDays(pa._ds, pb._ds)) <= 7) {
+                if (pa && pb && Math.abs(dsDiffDays(pa._ds, pb._ds)) <= 5) {
                     var early = pa._ds < pb._ds ? pa._ds : pb._ds;
                     pa._ds = early; pb._ds = early;
                 }

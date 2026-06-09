@@ -56,6 +56,7 @@ SELECT
     d.DISP_EQPID,
     d.METERTYPE,
     d.GRP,
+    d.DATA_VAL,
     d.DAYS AS MIN_DAYS,
     d.DIFFV AS MIN_DIFF
 FROM
