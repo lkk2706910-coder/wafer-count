@@ -630,6 +630,17 @@
             }
             return ok;
         }
+        // 實際歸零(PM)日：取該機台量測項中最近一次的歸零日(DB)
+        function pmResetDate(eqpid, metertype) {
+            if (!PM.resetDate) return '';
+            var parts = (metertype || '').split(',');
+            var best = '';
+            for (var i = 0; i < parts.length; i++) {
+                var d = PM.resetDate[autoKey(eqpid, parts[i].trim())];
+                if (d && d > best) best = d;
+            }
+            return best;
+        }
         var WD = ['日', '一', '二', '三', '四', '五', '六'];
         var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -684,12 +695,15 @@
                         delete en.merged; delete en.mergedKeys;
                         changed = true;
                     }
-                    // (2) 完成打卡：偵測到 wafer count 歸零(已PM) → 永久標記 done + 完成日，
+                    // (2) 完成打卡：永久標記 done + 完成日(優先用 DB 實際歸零日)，
                     //     之後不因數值回升而消失，可供查詢「何時 PM、內容為何」
-                    if (!en.done && isPmDone(en.eqpid, en.metertype)) {
-                        en.done = true;
-                        en.doneDate = todayStr;
-                        changed = true;
+                    if (!en.done) {
+                        var rd = pmResetDate(en.eqpid, en.metertype);
+                        if (rd && rd >= ds) {                       // DB 實際歸零日(在排定日當天或之後)
+                            en.done = true; en.doneDate = rd; changed = true;
+                        } else if (isPmDone(en.eqpid, en.metertype)) { // 後援：現值已歸零但抓不到歸零日
+                            en.done = true; en.doneDate = todayStr; changed = true;
+                        }
                     }
                 }
             }
@@ -765,10 +779,13 @@
             var todayStr = dStr(today.getFullYear(), today.getMonth(), today.getDate());
 
             // 目前 wafer count 對照(供「已PM」判定)：autoKey -> { val, spec }
+            // 以及實際歸零(PM)日對照：autoKey -> 'YYYY-MM-DD'
             PM.metVal = {};
+            PM.resetDate = {};
             for (var mvI = 0; mvI < list.length; mvI++) {
                 var mvit = list[mvI];
                 PM.metVal[autoKey(mvit.eqpid, mvit.metertype || '')] = { val: mvit.dataVal, spec: mvit.spec };
+                if (mvit.lastReset) PM.resetDate[autoKey(mvit.eqpid, mvit.metertype || '')] = mvit.lastReset;
             }
 
             // 每日負載：{ 'YYYY-MM-DD': { n: 台數, ents: {entity:true} } }

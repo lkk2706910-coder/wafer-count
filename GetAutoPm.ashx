@@ -35,6 +35,7 @@ public class GetAutoPm : IHttpHandler
                         item["group"] = r["GRP"] == DBNull.Value ? "" : r["GRP"].ToString();
                         item["dataVal"] = r["DATA_VAL"] == DBNull.Value ? (object)null : Convert.ToDouble(r["DATA_VAL"]);
                         item["spec"] = r["SPEC"] == DBNull.Value ? (object)null : Convert.ToDouble(r["SPEC"]);
+                        item["lastReset"] = r["LAST_RESET"] == DBNull.Value ? (object)null : Convert.ToDateTime(r["LAST_RESET"]).ToString("yyyy-MM-dd");
                         item["days"] = r["MIN_DAYS"] == DBNull.Value ? 0 : Convert.ToInt32(r["MIN_DAYS"]);
                         item["diff"] = r["MIN_DIFF"] == DBNull.Value
                             ? (object)null
@@ -60,6 +61,7 @@ SELECT
     d.GRP,
     d.DATA_VAL,
     d.SPEC,
+    d.LAST_RESET,
     d.DAYS AS MIN_DAYS,
     d.DIFFV AS MIN_DIFF
 FROM
@@ -78,6 +80,7 @@ FROM
         b.GRP,
         TRY_CONVERT(decimal(18,4), b.DATA_VAL) AS DATA_VAL,
         sp.SPEC AS SPEC,
+        rs.LAST_RESET AS LAST_RESET,
         CASE
             WHEN sp.SPEC IS NULL OR mv.AVG_MOVE IS NULL OR mv.AVG_MOVE <= 0 THEN NULL
             ELSE
@@ -145,6 +148,15 @@ FROM
           AND (u.MAXQ - u.MINQ) > 0
           AND (u.MAXQ - u.MINQ) <= 3000
     ) mv
+    OUTER APPLY
+    (
+        -- 實際 PM(歸零)日：最近一次 move 為負(重置)的日期，作為「已PM 完成日」
+        SELECT MAX(u3.TXNDATE) AS LAST_RESET
+        FROM GPTPoCDB.dbo._MeterUEDA_DB09 u3
+        WHERE u3.EQCH = b.EQPID AND u3.METERTYPE = b.METERTYPE
+          AND u3.TXNDATE >= DATEADD(DAY, -180, CAST(GETDATE() AS date))
+          AND (u3.MAXQ - u3.MINQ) < 0
+    ) rs
     WHERE b.GRP IS NOT NULL
       AND
       (
